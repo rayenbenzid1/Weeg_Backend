@@ -1,0 +1,4 @@
+[2026-02-20 20:02:20] WARNING security Toutes les sessions révoquées pour [karoui.souha18@gmail.com] (6 sessions). Raison : password_changed.
+[2026-02-20 20:04:02] WARNING security Toutes les sessions révoquées pour [karoui.souha18@gmail.com] (1 sessions). Raison : password_changed.
+[2026-02-20 22:07:01] WARNING security Accès refusé (403) pour [karoui.souha18@gmail.com] sur /api/users/agents/create/ depuis 127.0.0.1.
+[2026-02-20 23:00:04] WARNING security Toutes les sessions révoquées pour [agent@test.com] (0 sessions). Raison : admin_revoked.
