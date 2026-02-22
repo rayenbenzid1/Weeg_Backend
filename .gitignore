@@ -1,3 +1,18 @@
-.env
 .env.example
 venv 
+# Django logs & temporaires
+*.log
+logs/
+*.log.*
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+coverage.xml
+db.sqlite3
+media/
+.env
+.venv/
+venv/
