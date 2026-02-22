@@ -12,3 +12,21 @@
 [2026-02-22 12:09:09] WARNING security Toutes les sessions révoquées pour [manager@gmail.com] (1 sessions). Raison : admin_revoked.
 [2026-02-22 12:11:16] WARNING security Toutes les sessions révoquées pour [souhakaroui2016@gmail.com] (0 sessions). Raison : admin_revoked.
 [2026-02-22 12:28:49] WARNING security Toutes les sessions révoquées pour [souha@gmail.com] (1 sessions). Raison : password_changed.
+[2026-02-22 13:50:31] WARNING security Toutes les sessions révoquées pour [souhakaroui2016@gmail.com] (0 sessions). Raison : admin_revoked.
+[2026-02-22 14:12:37] WARNING security Toutes les sessions révoquées pour [amine12@gmail.com] (0 sessions). Raison : admin_revoked.
+[2026-02-22 14:39:32] WARNING security Toutes les sessions révoquées pour [souhakaroui2016@gmail.com] (0 sessions). Raison : password_reset.
+[2026-02-22 14:47:48] WARNING security Toutes les sessions révoquées pour [souhakaroui2016@gmail.com] (0 sessions). Raison : password_reset.
+[2026-02-22 14:50:06] WARNING security Toutes les sessions révoquées pour [agent@company.com] (0 sessions). Raison : admin_revoked.
+[2026-02-22 14:51:36] WARNING security Toutes les sessions révoquées pour [rayenbenzid1@gmail.com] (0 sessions). Raison : admin_revoked.
+[2026-02-22 21:19:09] WARNING security IP 127.0.0.1 bloquée après 5 tentatives échouées.
+[2026-02-22 21:19:13] WARNING security Tentative de connexion bloquée depuis 127.0.0.1 (trop de tentatives échouées).
+[2026-02-22 21:19:15] WARNING security Tentative de connexion bloquée depuis 127.0.0.1 (trop de tentatives échouées).
+[2026-02-22 21:20:03] WARNING security Toutes les sessions révoquées pour [souhakaroui2016@gmail.com] (0 sessions). Raison : password_reset.
+[2026-02-22 21:20:14] WARNING security Tentative de connexion bloquée depuis 127.0.0.1 (trop de tentatives échouées).
+[2026-02-22 21:20:35] WARNING security Tentative de connexion bloquée depuis 127.0.0.1 (trop de tentatives échouées).
+[2026-02-22 21:20:39] WARNING security Tentative de connexion bloquée depuis 127.0.0.1 (trop de tentatives échouées).
+[2026-02-22 21:21:12] WARNING security Tentative de connexion bloquée depuis 127.0.0.1 (trop de tentatives échouées).
+[2026-02-22 21:21:15] WARNING security Tentative de connexion bloquée depuis 127.0.0.1 (trop de tentatives échouées).
+[2026-02-22 21:25:22] WARNING security Tentative de connexion bloquée depuis 127.0.0.1 (trop de tentatives échouées).
+[2026-02-22 21:25:36] WARNING security Tentative de connexion bloquée depuis 127.0.0.1 (trop de tentatives échouées).
+[2026-02-22 21:48:15] WARNING security Toutes les sessions révoquées pour [weeg@digitalia.ly] (14 sessions). Raison : password_changed.

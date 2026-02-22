@@ -16,7 +16,12 @@ from .signup_views import (
     RequestPasswordResetView,
     ConfirmPasswordResetView,
 )
-
+# NEW: Forgot password with verification code
+from .forgot_password_views import (
+    ForgotPasswordRequestView,
+    ForgotPasswordVerifyView,
+    ForgotPasswordResetView,
+)
 app_name = "authentication"
 
 urlpatterns = [
@@ -34,7 +39,15 @@ urlpatterns = [
     path("change-password/",                     ChangePasswordView.as_view(),       name="change-password"),
     path("password-reset/request/",              RequestPasswordResetView.as_view(), name="password-reset-request"),
     path("password-reset/confirm/",              ConfirmPasswordResetView.as_view(), name="password-reset-confirm"),
-
+    # -------------------------------------------------------------------------
+    # NEW: Forgot password (auto-service par code email — pour manager/agent)
+    # -------------------------------------------------------------------------
+    # Step 1 : L'utilisateur entre son email → reçoit un code 6 chiffres
+    path("forgot-password/request/",             ForgotPasswordRequestView.as_view(), name="forgot-password-request"),
+    # Step 2 : L'utilisateur vérifie son code → reçoit un token temporaire
+    path("forgot-password/verify/",              ForgotPasswordVerifyView.as_view(),  name="forgot-password-verify"),
+    # Step 3 : L'utilisateur soumet son nouveau mot de passe avec le token
+    path("forgot-password/reset/",               ForgotPasswordResetView.as_view(),   name="forgot-password-reset"),
     # -------------------------------------------------------------------------
     # Agents (manager)
     # -------------------------------------------------------------------------
