@@ -7,9 +7,9 @@ from .models import User
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     """
-    Interface d'administration personnalisée pour le modèle User custom.
-    Note : La gestion des branches se fait uniquement via l'interface métier,
-    pas via l'admin Django (conformément aux specs FASI).
+    Custom admin interface for the custom User model.
+    Note: Branch management is handled only through the business interface,
+    not via the Django admin (per WEEG specifications).
     """
 
     list_display = [
@@ -37,30 +37,30 @@ class UserAdmin(BaseUserAdmin):
 
     fieldsets = (
         (
-            "Identité",
+            "Identity",
             {"fields": ("id", "email", "first_name", "last_name", "phone_number")},
         ),
         (
-            "Rôle et accès",
+            "Role & Access",
             {"fields": ("role", "status", "company", "is_verified", "rejection_reason")},
         ),
         (
-            "Permissions granulaires",
+            "Granular Permissions",
             {"fields": ("permissions_list",), "classes": ("collapse",)},
         ),
         (
-            "Sécurité",
+            "Security",
             {"fields": ("password", "token_version", "must_change_password"), "classes": ("collapse",)},
         ),
         (
-            "Permissions Django (système)",
+            "Django System Permissions",
             {
                 "fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions"),
                 "classes": ("collapse",),
             },
         ),
         (
-            "Métadonnées",
+            "Metadata",
             {"fields": ("created_by", "created_at", "updated_at"), "classes": ("collapse",)},
         ),
     )
@@ -88,7 +88,7 @@ class UserAdmin(BaseUserAdmin):
 
     def full_name(self, obj):
         return obj.full_name
-    full_name.short_description = "Nom complet"
+    full_name.short_description = "Full name"
 
     def role_display(self, obj):
         colors = {
@@ -102,7 +102,7 @@ class UserAdmin(BaseUserAdmin):
             color,
             obj.get_role_display(),
         )
-    role_display.short_description = "Rôle"
+    role_display.short_description = "Role"
 
     def status_display(self, obj):
         colors = {
@@ -118,4 +118,4 @@ class UserAdmin(BaseUserAdmin):
             color,
             obj.get_status_display(),
         )
-    status_display.short_description = "Statut"
+    status_display.short_description = "Status"

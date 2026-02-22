@@ -3,7 +3,7 @@ from rest_framework.response import Response
 
 
 class StandardPagination(PageNumberPagination):
-    """Pagination standard utilisée par défaut dans toute l'API."""
+    """Default standard pagination used across the entire API."""
     page_size = 20
     page_size_query_param = "page_size"
     max_page_size = 100
@@ -33,7 +33,7 @@ class StandardPagination(PageNumberPagination):
 
 
 class LargePagination(PageNumberPagination):
-    """Pagination pour les listes larges (exports, rapports)."""
+    """Pagination for large lists (exports, reports, bulk data)."""
     page_size = 100
     page_size_query_param = "page_size"
     max_page_size = 500
@@ -48,7 +48,7 @@ class LargePagination(PageNumberPagination):
 
 
 class SmallPagination(PageNumberPagination):
-    """Pagination pour les petites listes (dropdowns, selects)."""
+    """Pagination for small lists (dropdowns, selects, autocomplete)."""
     page_size = 10
     page_size_query_param = "page_size"
     max_page_size = 50

@@ -9,13 +9,13 @@ User = get_user_model()
 
 
 # =============================================================================
-# SERIALIZERS DE LECTURE (affichage)
+# READ SERIALIZERS (display)
 # =============================================================================
 
 class UserProfileSerializer(serializers.ModelSerializer):
     """
-    Affiche le profil complet de l'utilisateur connecté.
-    Utilisé par GET /api/users/profile/
+    Displays the complete profile of the logged-in user.
+    Used by GET /api/users/profile/
     """
     full_name = serializers.CharField(read_only=True)
     branch_name = serializers.CharField(source="branch.name", read_only=True, default=None)
@@ -50,7 +50,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 class UserListSerializer(serializers.ModelSerializer):
     """
-    Affichage simplifié d'un utilisateur dans une liste.
+    Simplified display of a user in a list view.
     """
     full_name = serializers.CharField(read_only=True)
     branch_name = serializers.CharField(source="branch.name", read_only=True, default=None)
@@ -75,12 +75,12 @@ class UserListSerializer(serializers.ModelSerializer):
 
 
 # =============================================================================
-# SERIALIZERS D'ÉCRITURE (création / modification)
+# WRITE SERIALIZERS (create / update)
 # =============================================================================
 
 class UpdateProfileSerializer(serializers.ModelSerializer):
     """
-    Permet à un utilisateur de mettre à jour son propre profil.
+    Allows a user to update their own profile.
     """
     class Meta:
         model = User
@@ -88,18 +88,18 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
 
     def validate_first_name(self, value):
         if not value.strip():
-            raise serializers.ValidationError("Le prénom ne peut pas être vide.")
+            raise serializers.ValidationError("First name cannot be empty.")
         return value.strip()
 
     def validate_last_name(self, value):
         if not value.strip():
-            raise serializers.ValidationError("Le nom ne peut pas être vide.")
+            raise serializers.ValidationError("Last name cannot be empty.")
         return value.strip()
 
 
 class ChangePasswordSerializer(serializers.Serializer):
     """
-    Permet à un utilisateur connecté de changer son propre mot de passe.
+    Allows a logged-in user to change their own password.
     """
     old_password = serializers.CharField(write_only=True, required=True)
     new_password = serializers.CharField(write_only=True, required=True, min_length=8)
@@ -115,31 +115,31 @@ class ChangePasswordSerializer(serializers.Serializer):
     def validate(self, data):
         if data["new_password"] != data["new_password_confirm"]:
             raise serializers.ValidationError(
-                {"new_password_confirm": "Les deux mots de passe ne correspondent pas."}
+                {"new_password_confirm": "The two passwords do not match."}
             )
         if data["old_password"] == data["new_password"]:
             raise serializers.ValidationError(
-                {"new_password": "Le nouveau mot de passe doit être différent de l'ancien."}
+                {"new_password": "The new password must be different from the old one."}
             )
         return data
 
 
 # =============================================================================
-# SERIALIZERS SIGNUP MANAGER
+# MANAGER SIGNUP SERIALIZER
 # =============================================================================
 
 class ManagerSignupSerializer(serializers.ModelSerializer):
     """
-    Permet à un manager de s'inscrire via le formulaire public.
-    Le compte est créé avec le statut PENDING.
-    Le champ 'company_name' crée ou réutilise une Company existante.
+    Allows a manager to sign up via the public form.
+    The account is created with PENDING status.
+    The 'company_name' field creates or reuses an existing Company.
     """
     password = serializers.CharField(write_only=True, required=True, min_length=8)
     password_confirm = serializers.CharField(write_only=True, required=True)
     company_name = serializers.CharField(
         required=True,
         max_length=255,
-        help_text="Nom officiel de la société du manager.",
+        help_text="Official name of the manager's company.",
     )
 
     class Meta:
@@ -157,13 +157,13 @@ class ManagerSignupSerializer(serializers.ModelSerializer):
     def validate_email(self, value):
         email = value.strip().lower()
         if User.objects.filter(email=email).exists():
-            raise serializers.ValidationError("Cette adresse email est déjà utilisée.")
+            raise serializers.ValidationError("This email address is already in use.")
         return email
 
     def validate_company_name(self, value):
         name = value.strip()
         if not name:
-            raise serializers.ValidationError("Le nom de la société est obligatoire.")
+            raise serializers.ValidationError("Company name is required.")
         return name
 
     def validate_password(self, value):
@@ -176,7 +176,7 @@ class ManagerSignupSerializer(serializers.ModelSerializer):
     def validate(self, data):
         if data["password"] != data["password_confirm"]:
             raise serializers.ValidationError(
-                {"password_confirm": "Les deux mots de passe ne correspondent pas."}
+                {"password_confirm": "The two passwords do not match."}
             )
         return data
 
@@ -185,7 +185,7 @@ class ManagerSignupSerializer(serializers.ModelSerializer):
         password = validated_data.pop("password")
         company_name = validated_data.pop("company_name")
 
-        # Récupère ou crée la société
+        # Get or create the company
         company, _ = Company.objects.get_or_create(name=company_name)
 
         user = User(
@@ -202,19 +202,19 @@ class ManagerSignupSerializer(serializers.ModelSerializer):
 
 
 # =============================================================================
-# SERIALIZERS CRÉATION AGENT PAR MANAGER
+# AGENT CREATION BY MANAGER
 # =============================================================================
 
 class CreateAgentSerializer(serializers.ModelSerializer):
     """
-    Permet à un manager de créer un compte agent.
-    La Company de l'agent est automatiquement celle du Manager — non modifiable.
+    Allows a manager to create an agent account.
+    The agent's Company is automatically set to the Manager's — not editable.
     """
     temporary_password = serializers.CharField(
         write_only=True,
         required=True,
         min_length=8,
-        help_text="Mot de passe temporaire pour l'agent.",
+        help_text="Temporary password for the agent.",
     )
 
     class Meta:
@@ -232,7 +232,7 @@ class CreateAgentSerializer(serializers.ModelSerializer):
     def validate_email(self, value):
         email = value.strip().lower()
         if User.objects.filter(email=email).exists():
-            raise serializers.ValidationError("Cette adresse email est déjà utilisée.")
+            raise serializers.ValidationError("This email address is already in use.")
         return email
 
     def create(self, validated_data):
@@ -245,7 +245,7 @@ class CreateAgentSerializer(serializers.ModelSerializer):
             is_verified=True,
             must_change_password=True,
             created_by=manager,
-            # L'agent hérite automatiquement de la Company de son Manager
+            # Agent automatically inherits the Manager's Company
             company=manager.company,
             **validated_data,
         )
@@ -255,7 +255,7 @@ class CreateAgentSerializer(serializers.ModelSerializer):
 
 
 # =============================================================================
-# SERIALIZERS RESET PASSWORD
+# PASSWORD RESET SERIALIZERS
 # =============================================================================
 
 class RequestPasswordResetSerializer(serializers.Serializer):
@@ -265,7 +265,7 @@ class RequestPasswordResetSerializer(serializers.Serializer):
         try:
             User.objects.get(id=value)
         except User.DoesNotExist:
-            raise serializers.ValidationError("Utilisateur introuvable.")
+            raise serializers.ValidationError("User not found.")
         return value
 
 
@@ -284,13 +284,13 @@ class ConfirmPasswordResetSerializer(serializers.Serializer):
     def validate(self, data):
         if data["new_password"] != data["new_password_confirm"]:
             raise serializers.ValidationError(
-                {"new_password_confirm": "Les deux mots de passe ne correspondent pas."}
+                {"new_password_confirm": "The two passwords do not match."}
             )
         return data
 
 
 # =============================================================================
-# SERIALIZERS GESTION UTILISATEURS PAR ADMIN/MANAGER
+# USER MANAGEMENT SERIALIZERS (ADMIN / MANAGER)
 # =============================================================================
 
 class UpdateUserPermissionsSerializer(serializers.ModelSerializer):
@@ -320,9 +320,10 @@ class UpdateUserPermissionsSerializer(serializers.ModelSerializer):
         invalid = set(value) - allowed_permissions
         if invalid:
             raise serializers.ValidationError(
-                f"Permissions invalides : {', '.join(invalid)}."
+                f"Invalid permissions: {', '.join(invalid)}."
             )
         return value
+
 
 class UpdateUserStatusSerializer(serializers.ModelSerializer):
     reason = serializers.CharField(required=False, allow_blank=True)
@@ -335,7 +336,7 @@ class UpdateUserStatusSerializer(serializers.ModelSerializer):
         allowed = [User.AccountStatus.ACTIVE, User.AccountStatus.SUSPENDED]
         if value not in allowed:
             raise serializers.ValidationError(
-                "Seuls les statuts 'active' et 'suspended' sont modifiables via cet endpoint."
+                "Only 'active' and 'suspended' statuses can be modified via this endpoint."
             )
         return value
 
@@ -347,6 +348,6 @@ class ApproveRejectManagerSerializer(serializers.Serializer):
     def validate(self, data):
         if data["action"] == "reject" and not data.get("reason", "").strip():
             raise serializers.ValidationError(
-                {"reason": "Le motif est obligatoire pour rejeter une demande."}
+                {"reason": "A reason is required to reject a request."}
             )
         return data

@@ -6,12 +6,12 @@ User = get_user_model()
 
 class IsSameUserOrAdmin(BasePermission):
     """
-    Autorise l'accès si l'utilisateur accède à ses propres données
-    ou si c'est un administrateur.
+    Allows access if the user is accessing their own data
+    or if they are an administrator.
 
-    Utilisé pour les endpoints de profil détaillé.
+    Used for detailed profile endpoints.
     """
-    message = "Vous ne pouvez accéder qu'à vos propres données."
+    message = "You can only access your own data."
 
     def has_object_permission(self, request, view, obj):
         return (
@@ -22,12 +22,12 @@ class IsSameUserOrAdmin(BasePermission):
 
 class CanManageAgent(BasePermission):
     """
-    Vérifie qu'un manager a le droit de gérer un agent spécifique.
-    Le manager ne peut gérer que les agents de sa propre succursale.
+    Checks if a manager has permission to manage a specific agent.
+    Managers can only manage agents from their own branch.
 
-    Utilisé par AgentDetailView.
+    Used by AgentDetailView.
     """
-    message = "Vous ne pouvez gérer que les agents de votre propre succursale."
+    message = "You can only manage agents from your own branch."
 
     def has_object_permission(self, request, view, obj):
         if request.user.role == User.Role.ADMIN:
@@ -44,15 +44,14 @@ class CanManageAgent(BasePermission):
 
 class CanResetPassword(BasePermission):
     """
-    Vérifie qu'un utilisateur a le droit de réinitialiser le mot de passe
-    d'un autre utilisateur.
+    Checks if a user has permission to reset another user's password.
 
-    Règles :
-        - Admin   : peut resetter n'importe qui
-        - Manager : peut resetter uniquement ses agents
-        - Agent   : ne peut pas resetter le mot de passe de quelqu'un d'autre
+    Rules:
+        - Admin   : can reset anyone's password
+        - Manager : can only reset their own agents' passwords
+        - Agent   : cannot reset anyone else's password
     """
-    message = "Vous n'avez pas le droit de réinitialiser ce mot de passe."
+    message = "You do not have permission to reset this password."
 
     def has_object_permission(self, request, view, obj):
         if request.user.role == User.Role.ADMIN:

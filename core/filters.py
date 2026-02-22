@@ -6,8 +6,8 @@ User = get_user_model()
 
 class UserFilter(django_filters.FilterSet):
     """
-    Filtres pour la liste des utilisateurs.
-    Utilisé par AllUsersListView et AgentListView.
+    Filters for the user list.
+    Used by AllUsersListView and AgentListView.
     """
     role = django_filters.ChoiceFilter(choices=User.Role.choices)
     status = django_filters.ChoiceFilter(choices=User.AccountStatus.choices)
@@ -21,7 +21,7 @@ class UserFilter(django_filters.FilterSet):
         fields = ["role", "status", "branch"]
 
     def filter_search(self, queryset, name, value):
-        """Recherche par nom, prénom ou email."""
+        """Search by first name, last name or email."""
         from django.db.models import Q
         return queryset.filter(
             Q(first_name__icontains=value)
@@ -32,8 +32,8 @@ class UserFilter(django_filters.FilterSet):
 
 class DateRangeFilter(django_filters.FilterSet):
     """
-    Mixin de filtres par plage de dates.
-    À hériter dans les FilterSets qui ont besoin de filtrer par date.
+    Mixin for date range filtering.
+    Inherit this in any FilterSet that needs to filter by date.
     """
     date_after = django_filters.DateFilter(field_name="created_at", lookup_expr="gte")
     date_before = django_filters.DateFilter(field_name="created_at", lookup_expr="lte")

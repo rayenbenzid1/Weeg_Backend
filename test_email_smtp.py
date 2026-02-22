@@ -1,10 +1,10 @@
 """
 test_email_smtp.py
-Placez ce fichier à la racine du backend et exécutez :
+Place this file at the root of the backend and run:
     python test_email_smtp.py
 
-Ce script teste la connexion SMTP directement, en dehors de Django,
-pour isoler le problème de livraison.
+This script tests the SMTP connection directly, outside of Django,
+to isolate delivery issues.
 """
 
 import smtplib
@@ -12,77 +12,77 @@ import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-# ── Config (identique à votre .env) ──────────────────────────────────────────
+# ── Configuration (same as your .env) ────────────────────────────────────────
 HOST     = "mail.digitalia.ly"
 PORT     = 465
 USER     = "weeg@digitalia.ly"
 PASSWORD = "pfe2026@fasitunisie"
-TO       = "weeg@digitalia.ly"          # ← changez si vous voulez tester un autre destinataire
+TO       = "weeg@digitalia.ly"          # ← change this if you want to test another recipient
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_smtp():
     print(f"\n{'='*60}")
-    print(f"  Test SMTP — {HOST}:{PORT} (SSL)")
+    print(f"  SMTP Test — {HOST}:{PORT} (SSL)")
     print(f"{'='*60}\n")
 
-    # 1. Résolution DNS
+    # 1. DNS resolution
     import socket
-    print(f"[1/4] Résolution DNS de {HOST}...")
+    print(f"[1/4] Resolving DNS for {HOST}...")
     try:
         ip = socket.gethostbyname(HOST)
         print(f"      ✅ OK → {ip}")
     except socket.gaierror as e:
-        print(f"      ❌ ÉCHEC DNS : {e}")
-        print("      → Vérifiez que mail.digitalia.ly est accessible depuis ce réseau.")
+        print(f"      ❌ DNS FAILURE: {e}")
+        print("      → Check that mail.digitalia.ly is reachable from this network.")
         return
 
-    # 2. Connexion TCP port 465
-    print(f"\n[2/4] Connexion TCP à {HOST}:{PORT}...")
+    # 2. TCP connection to port 465
+    print(f"\n[2/4] TCP connection to {HOST}:{PORT}...")
     try:
         sock = socket.create_connection((HOST, PORT), timeout=10)
         sock.close()
-        print(f"      ✅ Port {PORT} ouvert")
+        print(f"      ✅ Port {PORT} is open")
     except Exception as e:
-        print(f"      ❌ ÉCHEC connexion TCP : {e}")
-        print("      → Le port 465 est peut-être bloqué par votre firewall / FAI.")
+        print(f"      ❌ TCP connection FAILED: {e}")
+        print("      → Port 465 might be blocked by your firewall / ISP.")
         return
 
-    # 3. Login SMTP SSL
-    print(f"\n[3/4] Authentification SMTP (USER: {USER})...")
+    # 3. SMTP SSL login
+    print(f"\n[3/4] SMTP authentication (USER: {USER})...")
     try:
         context = ssl.create_default_context()
         smtp = smtplib.SMTP_SSL(HOST, PORT, context=context, timeout=15)
         smtp.login(USER, PASSWORD)
-        print(f"      ✅ Login réussi")
+        print(f"      ✅ Login successful")
     except smtplib.SMTPAuthenticationError as e:
-        print(f"      ❌ Authentification échouée : {e}")
-        print("      → Vérifiez EMAIL_HOST_USER et EMAIL_HOST_PASSWORD dans .env")
+        print(f"      ❌ Authentication failed: {e}")
+        print("      → Check EMAIL_HOST_USER and EMAIL_HOST_PASSWORD in .env")
         return
     except ssl.SSLError as e:
-        print(f"      ❌ Erreur SSL : {e}")
-        print("      → Essayez EMAIL_USE_SSL=False et EMAIL_PORT=587 avec TLS")
+        print(f"      ❌ SSL error: {e}")
+        print("      → Try EMAIL_USE_SSL=False and EMAIL_PORT=587 with TLS")
         return
     except Exception as e:
-        print(f"      ❌ Erreur connexion : {e}")
+        print(f"      ❌ Connection error: {e}")
         return
 
-    # 4. Envoi d'un email de test
-    print(f"\n[4/4] Envoi de l'email de test vers {TO}...")
+    # 4. Sending test email
+    print(f"\n[4/4] Sending test email to {TO}...")
     try:
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = "[FASI] ✅ Test SMTP — si vous lisez ceci, tout fonctionne"
-        msg["From"]    = f"FASI <{USER}>"
+        msg["Subject"] = "[WEEG] ✅ SMTP Test — if you read this, everything works"
+        msg["From"]    = f"WEEG <{USER}>"
         msg["To"]      = TO
 
-        text = "Test SMTP FASI — l'email a bien été envoyé par Django."
+        text = "WEEG SMTP Test — this email was successfully sent via SMTP."
         html = f"""
         <div style="font-family:Arial,sans-serif;max-width:500px;margin:40px auto;
                     padding:30px;border:1px solid #e2e8f0;border-radius:10px;">
-            <h2 style="color:#4f46e5;">✅ Test SMTP réussi</h2>
-            <p>Si vous lisez cet email, la configuration SMTP de FASI est correcte.</p>
+            <h2 style="color:#4f46e5;">✅ SMTP Test Successful</h2>
+            <p>If you're reading this email, the WEEG SMTP configuration is correct.</p>
             <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
             <p style="color:#94a3b8;font-size:12px;">
-                Host : {HOST}:{PORT} | User : {USER}
+                Host: {HOST}:{PORT} | User: {USER}
             </p>
         </div>
         """
@@ -92,14 +92,14 @@ def test_smtp():
 
         smtp.sendmail(USER, [TO], msg.as_string())
         smtp.quit()
-        print(f"      ✅ Email envoyé avec succès !")
+        print(f"      ✅ Email sent successfully!")
         print(f"\n{'='*60}")
-        print(f"  Vérifiez votre boîte {TO}")
-        print(f"  (y compris Spam / Courrier indésirable / Autres)")
+        print(f"  Please check your inbox at {TO}")
+        print(f"  (including Spam / Junk / Other folders)")
         print(f"{'='*60}\n")
 
     except Exception as e:
-        print(f"      ❌ Échec envoi : {e}")
+        print(f"      ❌ Sending failed: {e}")
         smtp.quit()
 
 

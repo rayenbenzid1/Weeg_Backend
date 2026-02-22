@@ -1,14 +1,14 @@
 """
 apps/authentication/forgot_password_views.py
 
-Reset de mot de passe par code de vérification (pour managers et agents).
-Flow :
+Password reset via verification code (for managers and agents).
+Flow:
     1. POST /api/users/forgot-password/request/
-       → Vérifie l'email, génère un code 6 chiffres, l'envoie par email
+       → Check email, generate 6-digit code, send via email
     2. POST /api/users/forgot-password/verify/
-       → Vérifie le code, retourne un token temporaire si valide
+       → Verify code, return temporary token if valid
     3. POST /api/users/forgot-password/reset/
-       → Reçoit le token + nouveau mot de passe, met à jour en DB
+       → Receive token + new password, update in DB
 """
 
 import random
@@ -36,25 +36,25 @@ TOKEN_EXPIRY = 15 * 60      # 15 minutes after code verified
 
 
 def _generate_code(length=6) -> str:
-    """Génère un code numérique aléatoire."""
+    """Generate a random numeric code."""
     return ''.join(random.choices(string.digits, k=length))
 
 
 def _generate_token(length=32) -> str:
-    """Génère un token alphanumérique sécurisé."""
+    """Generate a secure alphanumeric token."""
     return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
 
 
 def _send_reset_code_email(user, code: str) -> bool:
-    """Envoie l'email contenant le code de vérification."""
-    subject = "[FASI] Code de réinitialisation de mot de passe"
+    """Send the email containing the verification code."""
+    subject = "[WEEG] Password Reset Verification Code"
 
     text_content = (
-        f"Bonjour {user.first_name},\n\n"
-        f"Votre code de vérification est : {code}\n\n"
-        f"Ce code expire dans 10 minutes.\n\n"
-        f"Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.\n\n"
-        f"Cordialement,\nL'équipe FASI"
+        f"Hello {user.first_name},\n\n"
+        f"Your verification code is: {code}\n\n"
+        f"This code expires in 10 minutes.\n\n"
+        f"If you did not request this reset, please ignore this email.\n\n"
+        f"Best regards,\nThe WEEG team"
     )
 
     html_content = f"""
@@ -63,20 +63,20 @@ def _send_reset_code_email(user, code: str) -> bool:
     <body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px;">
       <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
         <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:30px;text-align:center;">
-          <h1 style="color:#fff;margin:0;font-size:28px;font-weight:bold;">FASI</h1>
+          <h1 style="color:#fff;margin:0;font-size:28px;font-weight:bold;">WEEG</h1>
         </div>
         <div style="padding:30px;">
-          <h2 style="color:#1e293b;">🔐 Réinitialisation du mot de passe</h2>
-          <p style="color:#475569;">Bonjour <strong>{user.first_name}</strong>,</p>
+          <h2 style="color:#1e293b;">🔐 Password Reset</h2>
+          <p style="color:#475569;">Hello <strong>{user.first_name}</strong>,</p>
           <p style="color:#475569;">
-            Vous avez demandé la réinitialisation de votre mot de passe.
-            Voici votre code de vérification :
+            You requested a password reset.
+            Here is your verification code:
           </p>
 
           <!-- Code Block -->
           <div style="text-align:center;margin:32px 0;">
             <div style="display:inline-block;background:#f0f4ff;border:2px dashed #4f46e5;border-radius:12px;padding:20px 40px;">
-              <p style="margin:0 0 8px;color:#6b7280;font-size:13px;text-transform:uppercase;letter-spacing:1px;">Code de vérification</p>
+              <p style="margin:0 0 8px;color:#6b7280;font-size:13px;text-transform:uppercase;letter-spacing:1px;">Verification Code</p>
               <span style="font-family:monospace;font-size:40px;font-weight:900;color:#4f46e5;letter-spacing:8px;">
                 {code}
               </span>
@@ -84,16 +84,16 @@ def _send_reset_code_email(user, code: str) -> bool:
           </div>
 
           <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px;margin:16px 0;text-align:center;">
-            <p style="color:#92400e;margin:0;">⏱️ Ce code expire dans <strong>10 minutes</strong></p>
+            <p style="color:#92400e;margin:0;">⏱️ This code expires in <strong>10 minutes</strong></p>
           </div>
 
           <p style="color:#94a3b8;font-size:13px;text-align:center;">
-            Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.<br>
-            Votre mot de passe ne sera pas modifié.
+            If you did not request this reset, please ignore this email.<br>
+            Your password will remain unchanged.
           </p>
         </div>
         <div style="background:#f8fafc;padding:20px;text-align:center;border-top:1px solid #e2e8f0;">
-          <p style="color:#94a3b8;font-size:12px;margin:0;">Email automatique FASI — Ne pas répondre.</p>
+          <p style="color:#94a3b8;font-size:12px;margin:0;">Automatic WEEG email — Do not reply.</p>
         </div>
       </div>
     </body>
@@ -108,7 +108,7 @@ def _send_reset_code_email(user, code: str) -> bool:
         msg.send(fail_silently=False)
         return True
     except Exception as e:
-        logger.error(f"Erreur envoi email reset code à {user.email}: {e}")
+        logger.error(f"Failed to send reset code email to {user.email}: {e}")
         return False
 
 
@@ -120,43 +120,44 @@ class ForgotPasswordRequestView(APIView):
     """
     POST /api/users/forgot-password/request/
 
-    Body : { "email": "user@example.com" }
+    Body: { "email": "user@example.com" }
 
-    - Vérifie que l'email existe
-    - Génère un code 6 chiffres
-    - Stocke le code en cache (10 min)
-    - Envoie le code par email
+    - Checks if the email exists
+    - Generates a 6-digit code
+    - Stores the code in cache (10 min)
+    - Sends the code by email
 
-    Réponse : toujours 200 (pour ne pas révéler si l'email existe)
+    Response: always 200 (to avoid leaking whether the email exists)
     """
     permission_classes = [AllowAny]
     authentication_classes = []
+
     def post(self, request):
         email = request.data.get("email", "").strip().lower()
         if not email:
             return Response(
-                {"error": "L'adresse email est obligatoire."},
+                {"error": "Email address is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Lookup silencieux — on ne révèle pas si l'email existe
+        # Silent lookup — do not reveal if email exists
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            # Réponse générique pour la sécurité
+            # Generic response for security
             return Response(
-                {"message": "Si cet email est enregistré, vous recevrez un code de vérification."},
+                {"message": "If this email is registered, you will receive a verification code."},
                 status=status.HTTP_200_OK,
             )
 
-        # Vérifier que le compte peut réinitialiser (pas rejeté)
+        # Check if account can reset (not rejected)
         if user.status == User.AccountStatus.REJECTED:
             return Response(
-                {"error": "Ce compte a été rejeté. Contactez un administrateur."},
+                {"error": "This account has been rejected. Contact an administrator."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Générer et stocker le code
+        # Generate and store code
         code = _generate_code()
         cache_key = f"{RESET_CODE_PREFIX}:{email}"
         cache.set(cache_key, {
@@ -165,13 +166,13 @@ class ForgotPasswordRequestView(APIView):
             "attempts": 0,
         }, timeout=CODE_EXPIRY)
 
-        # Envoyer l'email
+        # Send email
         _send_reset_code_email(user, code)
 
-        logger.info(f"[FORGOT PASSWORD] Code envoyé à {email}")
+        logger.info(f"[FORGOT PASSWORD] Code sent to {email}")
 
         return Response(
-            {"message": "Si cet email est enregistré, vous recevrez un code de vérification."},
+            {"message": "If this email is registered, you will receive a verification code."},
             status=status.HTTP_200_OK,
         )
 
@@ -184,11 +185,11 @@ class ForgotPasswordVerifyView(APIView):
     """
     POST /api/users/forgot-password/verify/
 
-    Body : { "email": "user@example.com", "code": "483921" }
+    Body: { "email": "user@example.com", "code": "483921" }
 
-    - Vérifie le code
-    - Si valide → génère un token temporaire (15 min) et le retourne
-    - Si invalide → incrémente le compteur d'erreurs (max 5 tentatives)
+    - Verifies the code
+    - If valid → generates a temporary token (15 min) and returns it
+    - If invalid → increments attempt counter (max 5 attempts)
     """
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -200,7 +201,7 @@ class ForgotPasswordVerifyView(APIView):
 
         if not email or not code:
             return Response(
-                {"error": "Email et code sont obligatoires."},
+                {"error": "Email and code are required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -209,32 +210,32 @@ class ForgotPasswordVerifyView(APIView):
 
         if not data:
             return Response(
-                {"error": "Le code a expiré ou est invalide. Demandez un nouveau code."},
+                {"error": "Code has expired or is invalid. Request a new code."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Vérifier le nombre de tentatives
+        # Check attempt limit
         if data["attempts"] >= self.MAX_ATTEMPTS:
             cache.delete(cache_key)
             return Response(
-                {"error": "Trop de tentatives. Demandez un nouveau code."},
+                {"error": "Too many attempts. Please request a new code."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
-        # Comparer le code
+        # Compare code
         if data["code"] != code:
             data["attempts"] += 1
             cache.set(cache_key, data, timeout=CODE_EXPIRY)
             remaining = self.MAX_ATTEMPTS - data["attempts"]
             return Response(
                 {
-                    "error": f"Code incorrect. {remaining} tentative(s) restante(s).",
+                    "error": f"Incorrect code. {remaining} attempt(s) remaining.",
                     "attempts_remaining": remaining,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Code valide — générer un token temporaire
+        # Valid code — generate temporary token
         reset_token = _generate_token()
         token_key = f"{RESET_TOKEN_PREFIX}:{reset_token}"
         cache.set(token_key, {
@@ -242,14 +243,14 @@ class ForgotPasswordVerifyView(APIView):
             "email": email,
         }, timeout=TOKEN_EXPIRY)
 
-        # Supprimer le code usagé
+        # Remove used code
         cache.delete(cache_key)
 
-        logger.info(f"[FORGOT PASSWORD] Code vérifié avec succès pour {email}")
+        logger.info(f"[FORGOT PASSWORD] Code successfully verified for {email}")
 
         return Response(
             {
-                "message": "Code vérifié. Vous pouvez maintenant réinitialiser votre mot de passe.",
+                "message": "Code verified. You can now reset your password.",
                 "reset_token": reset_token,
             },
             status=status.HTTP_200_OK,
@@ -264,19 +265,20 @@ class ForgotPasswordResetView(APIView):
     """
     POST /api/users/forgot-password/reset/
 
-    Body : {
+    Body: {
         "reset_token": "...",
         "new_password": "...",
         "new_password_confirm": "..."
     }
 
-    - Valide le token temporaire
-    - Vérifie les mots de passe
-    - Met à jour le mot de passe en DB
-    - Invalide tous les tokens JWT existants
+    - Validates the temporary token
+    - Checks passwords match
+    - Updates password in DB
+    - Invalidates all existing JWT tokens
     """
     permission_classes = [AllowAny]
-    authentication_classes = [] 
+    authentication_classes = []
+
     def post(self, request):
         from django.contrib.auth.password_validation import validate_password
         from django.core.exceptions import ValidationError as DjangoValidationError
@@ -287,37 +289,37 @@ class ForgotPasswordResetView(APIView):
 
         if not reset_token or not new_password or not new_password_confirm:
             return Response(
-                {"error": "Tous les champs sont obligatoires."},
+                {"error": "All fields are required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Valider le token
+        # Validate token
         token_key = f"{RESET_TOKEN_PREFIX}:{reset_token}"
         token_data = cache.get(token_key)
 
         if not token_data:
             return Response(
-                {"error": "Token invalide ou expiré. Recommencez la procédure."},
+                {"error": "Invalid or expired token. Please start over."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Vérifier la correspondance des mots de passe
+        # Check password match
         if new_password != new_password_confirm:
             return Response(
-                {"error": "Les deux mots de passe ne correspondent pas."},
+                {"error": "The two passwords do not match."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Récupérer l'utilisateur
+        # Retrieve user
         try:
             user = User.objects.get(id=token_data["user_id"])
         except User.DoesNotExist:
             return Response(
-                {"error": "Utilisateur introuvable."},
+                {"error": "User not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Valider le nouveau mot de passe
+        # Validate new password
         try:
             validate_password(new_password, user)
         except DjangoValidationError as e:
@@ -326,32 +328,32 @@ class ForgotPasswordResetView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Mettre à jour le mot de passe
+        # Update password
         user.set_password(new_password)
         user.must_change_password = False
         user.save(update_fields=["password", "must_change_password", "updated_at"])
 
-        # Invalider tous les tokens JWT existants
+        # Invalidate all existing JWT tokens
         user.increment_token_version()
         try:
             from apps.token_security.services import TokenService
             TokenService.revoke_all_user_tokens(user=user, reason="password_reset")
         except Exception as e:
-            logger.warning(f"Impossible de révoquer les tokens pour {user.email}: {e}")
+            logger.warning(f"Failed to revoke tokens for {user.email}: {e}")
 
-        # Supprimer le token temporaire
+        # Remove temporary token
         cache.delete(token_key)
 
-        # Envoyer un email de confirmation
+        # Send confirmation email
         try:
             from apps.authentication.services import EmailService
             EmailService.send_password_changed_confirmation(user)
         except Exception as e:
-            logger.warning(f"Email de confirmation non envoyé pour {user.email}: {e}")
+            logger.warning(f"Confirmation email not sent for {user.email}: {e}")
 
-        logger.info(f"[FORGOT PASSWORD] Mot de passe réinitialisé pour {user.email}")
+        logger.info(f"[FORGOT PASSWORD] Password reset successful for {user.email}")
 
         return Response(
-            {"message": "Mot de passe réinitialisé avec succès. Vous pouvez vous connecter."},
+            {"message": "Password reset successfully. You can now log in."},
             status=status.HTTP_200_OK,
         )

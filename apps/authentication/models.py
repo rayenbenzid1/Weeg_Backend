@@ -5,13 +5,13 @@ from django.db import models
 
 class UserManager(BaseUserManager):
     """
-    Manager custom pour le modèle User.
-    Utilise l'email à la place du username.
+    Custom manager for the User model.
+    Uses email instead of username for authentication.
     """
 
     def create_user(self, email, password=None, **extra_fields):
         if not email:
-            raise ValueError("L'adresse email est obligatoire.")
+            raise ValueError("The email address is required.")
         email = self.normalize_email(email)
         extra_fields.setdefault("is_active", True)
         user = self.model(email=email, **extra_fields)
@@ -26,56 +26,56 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("status", "active")
         extra_fields.setdefault("is_verified", True)
         extra_fields.setdefault("first_name", "Admin")
-        extra_fields.setdefault("last_name", "FASI")
+        extra_fields.setdefault("last_name", "WEEG")
         return self.create_user(email, password, **extra_fields)
 
 
 class User(AbstractUser):
     """
-    Modèle utilisateur custom qui remplace le User Django par défaut.
-    Configuré dans settings/base.py via : AUTH_USER_MODEL = 'authentication.User'
+    Custom user model that replaces Django's default User.
+    Configured in settings/base.py with: AUTH_USER_MODEL = 'authentication.User'
 
-    Trois rôles possibles :
-        - admin   : créé manuellement via createsuperuser, gère les managers
-        - manager : s'inscrit via formulaire, attend approbation admin, gère les agents
-        - agent   : créé par un manager, se connecte directement
+    Three possible roles:
+        - admin   : created manually via createsuperuser, manages managers
+        - manager : registers via public form, awaits admin approval, manages agents
+        - agent   : created by a manager, can log in immediately
 
-    Cycle de vie du statut :
-        PENDING  → APPROVED  (admin approuve)
-        PENDING  → REJECTED  (admin rejette)
-        APPROVED → ACTIVE    (après premier login)
-        ACTIVE   → SUSPENDED (admin ou manager suspend)
+    Account status lifecycle:
+        PENDING  → APPROVED  (admin approves)
+        PENDING  → REJECTED  (admin rejects)
+        APPROVED → ACTIVE    (after first successful login)
+        ACTIVE   → SUSPENDED (admin or manager suspends)
 
-    Relation Company :
+    Company relationship:
         - Admin  : company = NULL
-        - Manager: company = obligatoire (renseigné à l'inscription)
-        - Agent  : company = celle du manager qui l'a créé (automatique)
+        - Manager: company = required (provided at registration)
+        - Agent  : company = automatically inherited from the creating manager
     """
 
     # -------------------------------------------------------------------------
-    # Manager custom
+    # Custom manager
     # -------------------------------------------------------------------------
 
     objects = UserManager()
 
     # -------------------------------------------------------------------------
-    # Choix des champs
+    # Choice definitions
     # -------------------------------------------------------------------------
 
     class Role(models.TextChoices):
-        ADMIN = "admin", "Administrateur"
+        ADMIN = "admin", "Administrator"
         MANAGER = "manager", "Manager"
         AGENT = "agent", "Agent"
 
     class AccountStatus(models.TextChoices):
-        PENDING = "pending", "En attente d'approbation"
-        APPROVED = "approved", "Approuvé"
-        REJECTED = "rejected", "Rejeté"
-        ACTIVE = "active", "Actif"
-        SUSPENDED = "suspended", "Suspendu"
+        PENDING = "pending", "Pending approval"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        ACTIVE = "active", "Active"
+        SUSPENDED = "suspended", "Suspended"
 
     # -------------------------------------------------------------------------
-    # Champs principaux
+    # Main fields
     # -------------------------------------------------------------------------
 
     id = models.UUIDField(
@@ -84,39 +84,39 @@ class User(AbstractUser):
         editable=False,
     )
 
-    # On utilise l'email comme identifiant de connexion à la place du username
+    # Email is used as the login identifier instead of username
     email = models.EmailField(
         unique=True,
-        verbose_name="Adresse email",
+        verbose_name="Email address",
     )
 
     username = models.CharField(
         max_length=150,
         blank=True,
         null=True,
-        verbose_name="Nom d'utilisateur",
-        help_text="Champ optionnel. L'email est utilisé pour la connexion.",
+        verbose_name="Username",
+        help_text="Optional field. Email is used for login.",
     )
 
-    first_name = models.CharField(max_length=150, verbose_name="Prénom")
-    last_name = models.CharField(max_length=150, verbose_name="Nom")
+    first_name = models.CharField(max_length=150, verbose_name="First name")
+    last_name = models.CharField(max_length=150, verbose_name="Last name")
 
     phone_number = models.CharField(
         max_length=20,
         blank=True,
         null=True,
-        verbose_name="Numéro de téléphone",
+        verbose_name="Phone number",
     )
 
     # -------------------------------------------------------------------------
-    # Rôle et statut
+    # Role and status
     # -------------------------------------------------------------------------
 
     role = models.CharField(
         max_length=20,
         choices=Role.choices,
         default=Role.AGENT,
-        verbose_name="Rôle",
+        verbose_name="Role",
         db_index=True,
     )
 
@@ -124,27 +124,27 @@ class User(AbstractUser):
         max_length=20,
         choices=AccountStatus.choices,
         default=AccountStatus.PENDING,
-        verbose_name="Statut du compte",
+        verbose_name="Account status",
         db_index=True,
     )
 
     # -------------------------------------------------------------------------
-    # Permissions granulaires
+    # Granular permissions
     # -------------------------------------------------------------------------
 
     permissions_list = models.JSONField(
         default=list,
         blank=True,
-        verbose_name="Liste des permissions",
+        verbose_name="Permissions list",
         help_text=(
-            "Liste des permissions accordées à cet utilisateur. "
-            "Stockée dans le payload JWT pour éviter des requêtes DB à chaque appel. "
-            "Exemples : ['view-dashboard', 'export-reports', 'manage-alerts']"
+            "List of permissions granted to this user. "
+            "Stored in the JWT payload to avoid DB queries on every request. "
+            "Examples: ['view-dashboard', 'export-reports', 'manage-alerts']"
         ),
     )
 
     # -------------------------------------------------------------------------
-    # Société (Company)
+    # Company association
     # -------------------------------------------------------------------------
 
     company = models.ForeignKey(
@@ -153,12 +153,12 @@ class User(AbstractUser):
         null=True,
         blank=True,
         related_name="users",
-        verbose_name="Société",
-        help_text="Société à laquelle appartient l'utilisateur. Null pour les admins.",
+        verbose_name="Company",
+        help_text="Company the user belongs to. Null for admins.",
     )
 
     # -------------------------------------------------------------------------
-    # Succursale assignée (conservée — ne pas supprimer)
+    # Assigned branch (kept — do not remove)
     # -------------------------------------------------------------------------
 
     branch = models.ForeignKey(
@@ -167,96 +167,96 @@ class User(AbstractUser):
         null=True,
         blank=True,
         related_name="users",
-        verbose_name="Succursale",
-        help_text="Succursale assignée à l'utilisateur. Null pour les admins.",
+        verbose_name="Branch",
+        help_text="Branch assigned to the user. Null for admins.",
     )
 
     # -------------------------------------------------------------------------
-    # Sécurité JWT avancée
+    # Advanced JWT security
     # -------------------------------------------------------------------------
 
     token_version = models.PositiveIntegerField(
         default=0,
-        verbose_name="Version du token",
+        verbose_name="Token version",
         help_text=(
-            "Incrémentée à chaque changement ou reset de mot de passe. "
-            "Tous les tokens contenant une version inférieure sont automatiquement invalidés."
+            "Incremented on every password change or reset. "
+            "All tokens with a lower version are automatically invalidated."
         ),
     )
 
     # -------------------------------------------------------------------------
-    # Flags spéciaux
+    # Special flags
     # -------------------------------------------------------------------------
 
     must_change_password = models.BooleanField(
         default=False,
-        verbose_name="Doit changer son mot de passe",
+        verbose_name="Must change password",
         help_text=(
-            "Mis à True lors de la création d'un compte agent par un manager. "
-            "L'agent est forcé de changer son mot de passe temporaire au premier login."
+            "Set to True when creating an agent account by a manager. "
+            "Forces the agent to change the temporary password on first login."
         ),
     )
 
     is_verified = models.BooleanField(
         default=False,
-        verbose_name="Email vérifié",
-        help_text="True après validation de l'email par l'admin (pour les managers).",
+        verbose_name="Email verified",
+        help_text="True after admin verifies the email (for managers).",
     )
 
     # -------------------------------------------------------------------------
-    # Métadonnées
+    # Metadata
     # -------------------------------------------------------------------------
 
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="Dernière modification")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created at")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Last modified")
 
-    # Motif de rejet ou suspension (renseigné par l'admin ou le manager)
+    # Reason for rejection or suspension (provided by admin or manager)
     rejection_reason = models.TextField(
         blank=True,
         null=True,
-        verbose_name="Motif de rejet / suspension",
-        help_text="Renseigné par l'admin lors du rejet ou de la suspension du compte.",
+        verbose_name="Rejection / suspension reason",
+        help_text="Provided by admin when rejecting or suspending the account.",
     )
 
-    # Qui a créé ce compte (manager qui crée un agent, admin qui crée un manager)
+    # Who created this account (manager creating an agent, admin creating a manager)
     created_by = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="created_users",
-        verbose_name="Créé par",
+        verbose_name="Created by",
     )
 
     # -------------------------------------------------------------------------
-    # Configuration Django Auth
+    # Django auth configuration
     # -------------------------------------------------------------------------
 
-    # On utilise l'email à la place du username pour la connexion
+    # Use email instead of username for login
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["first_name", "last_name"]
 
     class Meta:
         db_table = "auth_user"
-        verbose_name = "Utilisateur"
-        verbose_name_plural = "Utilisateurs"
+        verbose_name = "User"
+        verbose_name_plural = "Users"
         ordering = ["-created_at"]
 
     def __str__(self):
         return f"{self.get_full_name()} ({self.email}) - {self.role}"
 
     # -------------------------------------------------------------------------
-    # Propriétés utilitaires
+    # Utility properties
     # -------------------------------------------------------------------------
 
     @property
     def full_name(self) -> str:
-        """Retourne le nom complet de l'utilisateur."""
+        """Returns the user's full name."""
         return f"{self.first_name} {self.last_name}".strip()
 
     @property
     def company_name(self) -> str | None:
-        """Retourne le nom de la société ou None."""
+        """Returns the company name or None."""
         return self.company.name if self.company else None
 
     @property
@@ -273,46 +273,46 @@ class User(AbstractUser):
 
     @property
     def is_active_account(self) -> bool:
-        """True si le compte peut se connecter (approuvé ou actif)."""
+        """True if the account can log in (approved or active)."""
         return self.status in (self.AccountStatus.APPROVED, self.AccountStatus.ACTIVE)
 
     # -------------------------------------------------------------------------
-    # Méthodes métier
+    # Business methods
     # -------------------------------------------------------------------------
 
     def increment_token_version(self) -> None:
         """
-        Incrémente la version du token pour invalider tous les tokens existants.
-        Appelée lors d'un changement ou reset de mot de passe.
+        Increments the token version to invalidate all existing tokens.
+        Called on password change or reset.
         """
         self.token_version += 1
         self.save(update_fields=["token_version", "updated_at"])
 
     def approve(self) -> None:
-        """Approuve le compte d'un manager."""
+        """Approves a manager account."""
         self.status = self.AccountStatus.APPROVED
         self.is_verified = True
         self.save(update_fields=["status", "is_verified", "updated_at"])
 
     def reject(self, reason: str = "") -> None:
-        """Rejette la demande d'accès d'un manager."""
+        """Rejects a manager access request."""
         self.status = self.AccountStatus.REJECTED
         self.rejection_reason = reason
         self.save(update_fields=["status", "rejection_reason", "updated_at"])
 
     def suspend(self, reason: str = "") -> None:
-        """Suspend un compte utilisateur."""
+        """Suspends a user account."""
         self.status = self.AccountStatus.SUSPENDED
         self.rejection_reason = reason
         self.save(update_fields=["status", "rejection_reason", "updated_at"])
 
     def activate(self) -> None:
-        """Active un compte après le premier login réussi ou réactive un suspendu."""
+        """Activates an account after first successful login or reactivates a suspended one."""
         self.status = self.AccountStatus.ACTIVE
         self.save(update_fields=["status", "updated_at"])
 
     def has_custom_permission(self, permission: str) -> bool:
         """
-        Vérifie si l'utilisateur possède une permission spécifique.
+        Checks if the user has a specific custom permission.
         """
         return permission in (self.permissions_list or [])

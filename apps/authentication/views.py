@@ -30,11 +30,11 @@ User = get_user_model()
 
 class ProfileView(APIView):
     """
-    GET  /api/auth/profile/  → Affiche le profil de l'utilisateur connecté
-    PATCH /api/auth/profile/ → Met à jour les informations du profil
+    GET  /api/auth/profile/  → Display the profile of the logged-in user
+    PATCH /api/auth/profile/ → Update profile information
 
-    Accessible à tous les rôles (admin, manager, agent).
-    Seuls les champs non sensibles sont modifiables (prénom, nom, téléphone).
+    Accessible to all roles (admin, manager, agent).
+    Only non-sensitive fields are editable (first name, last name, phone).
     """
     permission_classes = [IsAuthenticated]
 
@@ -54,7 +54,7 @@ class ProfileView(APIView):
         serializer.save()
         return Response(
             {
-                "message": "Profil mis à jour avec succès.",
+                "message": "Profile updated successfully.",
                 "user": UserProfileSerializer(request.user).data,
             },
             status=status.HTTP_200_OK,
@@ -65,14 +65,14 @@ class ChangePasswordView(APIView):
     """
     POST /api/auth/change-password/
 
-    Permet à un utilisateur connecté de changer son propre mot de passe.
-    Exige l'ancien mot de passe pour validation.
+    Allows a logged-in user to change their own password.
+    Requires the old password for validation.
 
-    Après succès :
-        - token_version incrémenté → tous les anciens tokens invalides
-        - must_change_password mis à False (pour les agents au premier login)
-        - Email de confirmation envoyé
-        - Toutes les sessions révoquées (l'utilisateur doit se reconnecter)
+    Upon success:
+        - token_version incremented → all old tokens invalidated
+        - must_change_password set to False (for agents on first login)
+        - Confirmation email sent
+        - All sessions revoked (user must log in again)
     """
     permission_classes = [IsAuthenticated]
 
@@ -81,10 +81,10 @@ class ChangePasswordView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # Vérification de l'ancien mot de passe
+        # Check old password
         if not request.user.check_password(serializer.validated_data["old_password"]):
             return Response(
-                {"error": "L'ancien mot de passe est incorrect."},
+                {"error": "The old password is incorrect."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -96,8 +96,8 @@ class ChangePasswordView(APIView):
 
         return Response(
             {
-                "message": "Mot de passe modifié avec succès. "
-                           "Toutes vos sessions ont été fermées. Veuillez vous reconnecter."
+                "message": "Password changed successfully. "
+                           "All your sessions have been closed. Please log in again."
             },
             status=status.HTTP_200_OK,
         )
@@ -107,18 +107,18 @@ class ChangePasswordView(APIView):
 #     """
 #     POST /api/auth/agents/
 
-#     Permet à un manager de créer un compte agent.
-#     Le manager ne peut créer des agents que pour sa propre succursale.
+#     Allows a manager to create an agent account.
+#     The manager can only create agents for their own branch.
 
-#     Corps de la requête :
+#     Request body:
 #         - email, first_name, last_name, phone_number
-#         - branch : UUID de la succursale (doit être celle du manager)
-#         - permissions_list : liste des permissions à accorder
-#         - temporary_password : mot de passe temporaire
+#         - branch: UUID of the branch (must be the manager's)
+#         - permissions_list: list of permissions to grant
+#         - temporary_password: temporary password
 
-#     Après succès :
-#         - Compte agent créé avec must_change_password = True
-#         - Email avec les identifiants envoyé à l'agent
+#     Upon success:
+#         - Agent account created with must_change_password = True
+#         - Email with credentials sent to the agent
 #     """
 #     permission_classes = [IsAuthenticated, IsManager]
 
@@ -130,11 +130,11 @@ class ChangePasswordView(APIView):
 #         if not serializer.is_valid():
 #             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-#         # Vérification que la succursale appartient au manager connecté
+#         # Check that the branch belongs to the logged-in manager
 #         branch = serializer.validated_data.get("branch")
 #         if branch and request.user.branch and branch.id != request.user.branch.id:
 #             return Response(
-#                 {"error": "Vous ne pouvez créer des agents que pour votre propre succursale."},
+#                 {"error": "You can only create agents for your own branch."},
 #                 status=status.HTTP_403_FORBIDDEN,
 #             )
 
@@ -147,8 +147,8 @@ class ChangePasswordView(APIView):
 
 #         return Response(
 #             {
-#                 "message": f"Compte agent créé avec succès. "
-#                            f"Les identifiants ont été envoyés à {agent.email}.",
+#                 "message": f"Agent account created successfully. "
+#                            f"Credentials have been sent to {agent.email}.",
 #                 "agent": UserListSerializer(agent).data,
 #             },
 #             status=status.HTTP_201_CREATED,
@@ -158,8 +158,8 @@ class CreateAgentView(APIView):
     """
     POST /api/users/agents/create/
 
-    Permet à un manager de créer un compte agent.
-    La Company de l'agent est automatiquement celle du Manager — aucune saisie requise.
+    Allows a manager to create an agent account.
+    The agent's Company is automatically that of the Manager — no input required.
     """
     permission_classes = [IsAuthenticated, IsManager]
 
@@ -171,11 +171,11 @@ class CreateAgentView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # Vérification optionnelle de la succursale (si fournie, doit appartenir au manager)
+        # Optional branch check (if provided, must belong to the manager)
         branch = serializer.validated_data.get("branch")
         if branch and request.user.branch and branch.id != request.user.branch.id:
             return Response(
-                {"error": "Vous ne pouvez créer des agents que pour votre propre succursale."},
+                {"error": "You can only create agents for your own branch."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -188,7 +188,7 @@ class CreateAgentView(APIView):
 
         return Response(
             {
-                "message": f"Compte agent créé avec succès. Les identifiants ont été envoyés à {agent.email}.",
+                "message": f"Agent account created successfully. Credentials have been sent to {agent.email}.",
                 "agent": UserListSerializer(agent).data,
             },
             status=status.HTTP_201_CREATED,
@@ -198,20 +198,20 @@ class CreateAgentView(APIView):
 #     """
 #     GET /api/users/agents/
 
-#     ✅ Manager → voit uniquement les agents de SA succursale.
-#     ✅ Admin   → voit TOUS les agents de toutes les succursales.
+#     ✅ Manager → sees only agents from THEIR branch.
+#     ✅ Admin   → sees ALL agents from all branches.
 #     ❌ Agent   → 403 Forbidden.
 #     """
 #     permission_classes = [IsAuthenticated, IsAdminOrManager]
 
 #     def get(self, request):
 #         if request.user.is_admin:
-#             # L'admin voit tous les agents de toutes les succursales
+#             # Admin sees all agents from all branches
 #             agents = User.objects.filter(
 #                 role=User.Role.AGENT,
 #             ).order_by("-created_at")
 #         else:
-#             # Le manager voit uniquement les agents de sa succursale
+#             # Manager sees only agents from their branch
 #             agents = User.objects.filter(
 #                 role=User.Role.AGENT,
 #                 branch=request.user.branch,
@@ -231,8 +231,8 @@ class AgentListView(APIView):
     """
     GET /api/users/agents/
 
-    Manager → agents de SA company uniquement.
-    Admin   → tous les agents.
+    Manager → agents from THEIR company only.
+    Admin   → all agents.
     """
     permission_classes = [IsAuthenticated, IsAdminOrManager]
 
@@ -240,7 +240,7 @@ class AgentListView(APIView):
         if request.user.is_admin:
             agents = User.objects.filter(role=User.Role.AGENT).order_by("-created_at")
         else:
-            # Manager voit les agents de sa propre Company
+            # Manager sees agents from their own Company
             agents = User.objects.filter(
                 role=User.Role.AGENT,
                 company=request.user.company,
@@ -254,16 +254,16 @@ class AgentListView(APIView):
 
 class AgentDetailView(APIView):
     """
-    GET    /api/auth/agents/{id}/  → Détail d'un agent
-    PATCH  /api/auth/agents/{id}/  → Mise à jour d'un agent (manager uniquement)
-    DELETE /api/auth/agents/{id}/  → Suppression d'un agent (SCRUM-43)
+    GET    /api/auth/agents/{id}/  → Agent details
+    PATCH  /api/auth/agents/{id}/  → Update an agent (manager only)
+    DELETE /api/auth/agents/{id}/  → Delete an agent (SCRUM-43)
 
-    Le manager ne peut accéder qu'aux agents de sa propre succursale.
+    The manager can only access agents from their own branch.
     """
     permission_classes = [IsAuthenticated, IsManager]
 
     def _get_agent(self, agent_id, manager):
-        """Récupère l'agent en vérifiant qu'il appartient à la succursale du manager."""
+        """Retrieve the agent by checking it belongs to the manager's branch."""
         try:
             return User.objects.get(
                 id=agent_id,
@@ -277,7 +277,7 @@ class AgentDetailView(APIView):
         agent = self._get_agent(agent_id, request.user)
         if not agent:
             return Response(
-                {"error": "Agent introuvable ou accès non autorisé."},
+                {"error": "Agent not found or unauthorized access."},
                 status=status.HTTP_404_NOT_FOUND,
             )
         serializer = UserListSerializer(agent)
@@ -287,7 +287,7 @@ class AgentDetailView(APIView):
         agent = self._get_agent(agent_id, request.user)
         if not agent:
             return Response(
-                {"error": "Agent introuvable ou accès non autorisé."},
+                {"error": "Agent not found or unauthorized access."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -298,7 +298,7 @@ class AgentDetailView(APIView):
         serializer.save()
         return Response(
             {
-                "message": "Profil de l'agent mis à jour avec succès.",
+                "message": "Agent profile updated successfully.",
                 "agent": UserListSerializer(agent).data,
             },
             status=status.HTTP_200_OK,
@@ -306,15 +306,15 @@ class AgentDetailView(APIView):
 
     def delete(self, request, agent_id):
         """
-        Suppression d'un compte agent (SCRUM-43).
-        Révoque toutes ses sessions avant suppression.
+        Delete an agent account (SCRUM-43).
+        Revoke all their sessions before deletion.
         """
         from apps.token_security.services import TokenService
 
         agent = self._get_agent(agent_id, request.user)
         if not agent:
             return Response(
-                {"error": "Agent introuvable ou accès non autorisé."},
+                {"error": "Agent not found or unauthorized access."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -323,11 +323,11 @@ class AgentDetailView(APIView):
         agent.delete()
 
         logger.info(
-            f"Agent [{agent_email}] supprimé par le manager [{request.user.email}]."
+            f"Agent [{agent_email}] deleted by manager [{request.user.email}]."
         )
 
         return Response(
-            {"message": f"Le compte de {agent_email} a été supprimé avec succès."},
+            {"message": f"The account of {agent_email} has been deleted successfully."},
             status=status.HTTP_200_OK,
         )
 
@@ -336,16 +336,16 @@ class UpdateUserPermissionsView(APIView):
     """
     PATCH /api/users/users/{id}/permissions/
 
-    Règles d'accès :
-        ✅ Manager → peut modifier les permissions de SES agents uniquement.
-        ❌ Admin   → N'a PAS le droit de modifier les permissions des agents.
-        ❌ Agent   → Accès refusé (IsAdminOrManager bloque).
+    Access rules:
+        ✅ Manager → can modify permissions of THEIR agents only.
+        ❌ Admin   → does NOT have the right to modify agent permissions.
+        ❌ Agent   → Access denied (IsAdminOrManager blocks).
 
-    Pour voir les agents, l'admin utilise GET /api/users/users/?role=agent.
+    To view agents, admin uses GET /api/users/users/?role=agent.
     (SCRUM-20)
     """
-    # ✅ Garde IsAdminOrManager pour bloquer les agents (403)
-    # ❌ Mais on ajoute une vérification explicite : l'admin ne peut PAS modifier les agents
+    # ✅ Keep IsAdminOrManager to block agents (403)
+    # ❌ But add explicit check: admin cannot modify agents
     permission_classes = [IsAuthenticated, IsAdminOrManager]
 
     def patch(self, request, user_id):
@@ -353,23 +353,23 @@ class UpdateUserPermissionsView(APIView):
             target_user = User.objects.get(id=user_id)
         except User.DoesNotExist:
             return Response(
-                {"error": "Utilisateur introuvable."},
+                {"error": "User not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # ✅ MODIFICATION : L'admin ne peut PAS modifier les permissions des agents
+        # ✅ MODIFICATION: Admin cannot modify agent permissions
         if request.user.is_admin:
             if target_user.role == User.Role.AGENT:
                 return Response(
-                    {"error": "L'admin ne peut pas modifier les permissions des agents."},
+                    {"error": "Admin cannot modify agent permissions."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
-        # ✅ Le manager ne peut modifier que les permissions de SES propres agents
+        # ✅ Manager can only modify permissions of THEIR own agents
         if request.user.is_manager:
             if target_user.role != User.Role.AGENT or target_user.branch != request.user.branch:
                 return Response(
-                    {"error": "Vous ne pouvez modifier que les permissions de vos agents."},
+                    {"error": "You can only modify permissions of your agents."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
@@ -385,7 +385,7 @@ class UpdateUserPermissionsView(APIView):
 
         return Response(
             {
-                "message": "Permissions mises à jour avec succès.",
+                "message": "Permissions updated successfully.",
                 "user_id": str(target_user.id),
                 "permissions_list": target_user.permissions_list,
             },
@@ -397,8 +397,8 @@ class UpdateUserStatusView(APIView):
     """
     PATCH /api/auth/users/{id}/status/
 
-    Permet à l'admin de suspendre ou réactiver un compte utilisateur.
-    Accessible uniquement à l'admin.
+    Allows admin to suspend or reactivate a user account.
+    Accessible only to admin.
     """
     permission_classes = [IsAuthenticated, IsAdmin]
 
@@ -407,14 +407,14 @@ class UpdateUserStatusView(APIView):
             target_user = User.objects.get(id=user_id)
         except User.DoesNotExist:
             return Response(
-                {"error": "Utilisateur introuvable."},
+                {"error": "User not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # L'admin ne peut pas modifier son propre statut
+        # Admin cannot modify their own status
         if target_user.id == request.user.id:
             return Response(
-                {"error": "Vous ne pouvez pas modifier votre propre statut."},
+                {"error": "You cannot modify your own status."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -431,13 +431,13 @@ class UpdateUserStatusView(APIView):
 
         if new_status == User.AccountStatus.SUSPENDED:
             target_user.suspend(reason=reason)
-            # Révocation de toutes les sessions de l'utilisateur suspendu
+            # Revoke all sessions of the suspended user
             from apps.token_security.services import TokenService
             TokenService.revoke_all_user_tokens(user=target_user, reason="admin_revoked")
-            message = f"Le compte de {target_user.email} a été suspendu."
+            message = f"The account of {target_user.email} has been suspended."
         else:
             target_user.activate()
-            message = f"Le compte de {target_user.email} a été réactivé."
+            message = f"The account of {target_user.email} has been reactivated."
 
         return Response({"message": message}, status=status.HTTP_200_OK)
 
@@ -446,8 +446,8 @@ class AllUsersListView(APIView):
     """
     GET /api/auth/users/
 
-    Retourne la liste de tous les utilisateurs.
-    Accessible uniquement à l'admin.
+    Returns the list of all users.
+    Accessible only to admin.
     """
     permission_classes = [IsAuthenticated, IsAdmin]
 
@@ -473,8 +473,7 @@ class AllUsersListView(APIView):
 
 def _send_async(fn, *args, **kwargs):
     """
-    Lance l'envoi d'email dans un thread séparé pour ne pas bloquer la réponse HTTP.
+    Launches email sending in a separate thread to not block the HTTP response.
     """
     t = threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True)
     t.start()
-

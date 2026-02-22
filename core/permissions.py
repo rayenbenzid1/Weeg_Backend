@@ -2,48 +2,48 @@ from rest_framework.permissions import BasePermission
 
 
 class IsAdmin(BasePermission):
-    """Accès réservé aux administrateurs uniquement."""
-    message = "Accès réservé aux administrateurs."
+    """Access restricted to administrators only."""
+    message = "Access restricted to administrators."
 
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role == "admin"
 
 
 class IsManager(BasePermission):
-    """Accès réservé aux managers uniquement."""
-    message = "Accès réservé aux managers."
+    """Access restricted to managers only."""
+    message = "Access restricted to managers."
 
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role == "manager"
 
 
 class IsAgent(BasePermission):
-    """Accès réservé aux agents uniquement."""
-    message = "Accès réservé aux agents."
+    """Access restricted to agents only."""
+    message = "Access restricted to agents."
 
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role == "agent"
 
 
 class IsAdminOrManager(BasePermission):
-    """Accès réservé aux administrateurs et managers."""
-    message = "Accès réservé aux administrateurs et managers."
+    """Access restricted to administrators and managers."""
+    message = "Access restricted to administrators and managers."
 
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role in ("admin", "manager")
 
 
 class IsAdminOrManagerOrAgent(BasePermission):
-    """Accès à tous les rôles authentifiés."""
-    message = "Authentification requise."
+    """Access granted to all authenticated roles."""
+    message = "Authentication required."
 
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role in ("admin", "manager", "agent")
 
 
 class IsSameUserOrAdmin(BasePermission):
-    """Autorise l'accès si l'utilisateur accède à ses propres données ou si c'est un admin."""
-    message = "Vous ne pouvez accéder qu'à vos propres données."
+    """Allows access if the user is accessing their own data or if they are an admin."""
+    message = "You can only access your own data."
 
     def has_object_permission(self, request, view, obj):
         return (
@@ -53,8 +53,8 @@ class IsSameUserOrAdmin(BasePermission):
 
 
 class CanManageAgent(BasePermission):
-    """Un manager ne peut gérer que les agents de sa propre succursale."""
-    message = "Vous ne pouvez gérer que les agents de votre propre succursale."
+    """A manager can only manage agents from their own branch."""
+    message = "You can only manage agents from your own branch."
 
     def has_object_permission(self, request, view, obj):
         if request.user.role == "admin":
@@ -68,8 +68,8 @@ class CanManageAgent(BasePermission):
 
 
 class CanResetPassword(BasePermission):
-    """Admin peut resetter n'importe qui. Manager seulement ses agents."""
-    message = "Vous n'avez pas le droit de réinitialiser ce mot de passe."
+    """Admins can reset anyone's password. Managers can only reset their own agents."""
+    message = "You do not have permission to reset this password."
 
     def has_object_permission(self, request, view, obj):
         if request.user.role == "admin":

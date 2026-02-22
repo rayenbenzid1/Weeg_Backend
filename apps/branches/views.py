@@ -19,7 +19,7 @@ class BranchListView(APIView):
     def post(self, request):
         if not request.user.is_admin:
             return Response(
-                {"error": "Seul un administrateur peut créer une succursale."},
+                {"error": "Only an administrator can create a branch."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         serializer = BranchSerializer(data=request.data)

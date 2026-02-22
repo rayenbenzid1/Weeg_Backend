@@ -5,107 +5,107 @@ from rest_framework import status
 
 
 # =============================================================================
-# EXCEPTIONS JWT / AUTH
+# JWT / AUTH EXCEPTIONS
 # =============================================================================
 
 class TokenExpiredException(APIException):
     status_code = status.HTTP_401_UNAUTHORIZED
-    default_detail = "Votre session a expiré. Veuillez vous reconnecter."
+    default_detail = "Your session has expired. Please log in again."
     default_code = "token_expired"
 
 
 class TokenBlacklistedException(APIException):
     status_code = status.HTTP_401_UNAUTHORIZED
-    default_detail = "Ce token a été révoqué. Veuillez vous reconnecter."
+    default_detail = "This token has been revoked. Please log in again."
     default_code = "token_blacklisted"
 
 
 class InvalidTokenVersionException(APIException):
     status_code = status.HTTP_401_UNAUTHORIZED
-    default_detail = "Votre session est invalide suite à un changement de mot de passe. Veuillez vous reconnecter."
+    default_detail = "Your session is invalid due to a password change. Please log in again."
     default_code = "token_version_mismatch"
 
 
 class SuspiciousDeviceException(APIException):
     status_code = status.HTTP_401_UNAUTHORIZED
-    default_detail = "Appareil non reconnu. Session invalidée par mesure de sécurité."
+    default_detail = "Unrecognized device. Session invalidated for security reasons."
     default_code = "suspicious_device"
 
 
 class TokenReuseDetectedException(APIException):
     status_code = status.HTTP_401_UNAUTHORIZED
-    default_detail = "Activité suspecte détectée. Toutes vos sessions ont été fermées par mesure de sécurité."
+    default_detail = "Suspicious activity detected. All your sessions have been closed for security reasons."
     default_code = "token_reuse_detected"
 
 
 # =============================================================================
-# EXCEPTIONS COMPTE
+# ACCOUNT EXCEPTIONS
 # =============================================================================
 
 class AccountPendingException(APIException):
     status_code = status.HTTP_403_FORBIDDEN
-    default_detail = "Votre compte est en attente d'approbation par un administrateur."
+    default_detail = "Your account is pending approval by an administrator."
     default_code = "account_pending"
 
 
 class AccountRejectedException(APIException):
     status_code = status.HTTP_403_FORBIDDEN
-    default_detail = "Votre demande d'accès a été rejetée. Contactez un administrateur."
+    default_detail = "Your access request has been rejected. Contact an administrator."
     default_code = "account_rejected"
 
 
 class AccountSuspendedException(APIException):
     status_code = status.HTTP_403_FORBIDDEN
-    default_detail = "Votre compte a été suspendu. Contactez un administrateur."
+    default_detail = "Your account has been suspended. Contact an administrator."
     default_code = "account_suspended"
 
 
 # =============================================================================
-# EXCEPTIONS PERMISSIONS
+# PERMISSION EXCEPTIONS
 # =============================================================================
 
 class PermissionDeniedException(APIException):
     status_code = status.HTTP_403_FORBIDDEN
-    default_detail = "Vous n'avez pas les permissions nécessaires pour effectuer cette action."
+    default_detail = "You do not have the necessary permissions to perform this action."
     default_code = "permission_denied"
 
 
 class TooManyLoginAttemptsException(APIException):
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
-    default_detail = "Trop de tentatives de connexion. Votre accès est temporairement bloqué. Réessayez dans 15 minutes."
+    default_detail = "Too many login attempts. Your access is temporarily blocked. Try again in 15 minutes."
     default_code = "rate_limited"
 
 
 # =============================================================================
-# EXCEPTIONS MÉTIER
+# BUSINESS EXCEPTIONS
 # =============================================================================
 
 class ResourceNotFoundException(APIException):
     status_code = status.HTTP_404_NOT_FOUND
-    default_detail = "La ressource demandée est introuvable."
+    default_detail = "The requested resource was not found."
     default_code = "not_found"
 
 
 class ValidationException(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
-    default_detail = "Les données fournies sont invalides."
+    default_detail = "The provided data is invalid."
     default_code = "validation_error"
 
 
 class ConflictException(APIException):
     status_code = status.HTTP_409_CONFLICT
-    default_detail = "Un conflit existe avec les données existantes."
+    default_detail = "A conflict exists with existing data."
     default_code = "conflict"
 
 
 # =============================================================================
-# HANDLER GLOBAL D'EXCEPTIONS
+# GLOBAL EXCEPTION HANDLER
 # =============================================================================
 
 def custom_exception_handler(exc, context):
     """
-    Handler global d'exceptions pour l'API.
-    Formate toutes les erreurs de manière cohérente.
+    Global exception handler for the API.
+    Formats all errors consistently.
     """
     response = exception_handler(exc, context)
 
@@ -121,10 +121,10 @@ def custom_exception_handler(exc, context):
                 if hasattr(response.data["detail"], "code"):
                     error_data["code"] = response.data["detail"].code
             else:
-                error_data["message"] = "Erreur de validation."
+                error_data["message"] = "Validation error."
                 error_data["errors"] = response.data
         elif isinstance(response.data, list):
-            error_data["message"] = response.data[0] if response.data else "Erreur inconnue."
+            error_data["message"] = response.data[0] if response.data else "Unknown error."
         else:
             error_data["message"] = str(response.data)
 

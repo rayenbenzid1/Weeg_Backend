@@ -1,11 +1,11 @@
 """
 apps/authentication/email_service.py
 
-Service d'envoi d'emails pour le flux de validation des managers.
-Utilisé lors :
-    - De l'inscription d'un Manager (notification à l'Admin)
-    - De l'approbation d'un Manager (notification au Manager)
-    - Du rejet d'un Manager (notification au Manager)
+Email sending service for the manager validation flow.
+Used when:
+    - A Manager registers (notification to Admin)
+    - A Manager is approved (notification to Manager)
+    - A Manager is rejected (notification to Manager)
 """
 
 import logging
@@ -23,17 +23,16 @@ logger = logging.getLogger(__name__)
 
 def _get_admin_email() -> str:
     """
-    Retourne l'email de l'admin principal.
-    On utilise DEFAULT_FROM_EMAIL comme destinataire admin,
-    ou une valeur dédiée ADMIN_NOTIFICATION_EMAIL si définie dans settings.
+    Returns the main admin email.
+    Uses DEFAULT_FROM_EMAIL as fallback, or ADMIN_NOTIFICATION_EMAIL if defined in settings.
     """
     return getattr(settings, "ADMIN_NOTIFICATION_EMAIL", settings.DEFAULT_FROM_EMAIL)
 
 
 def _send(subject: str, html_body: str, recipient: str) -> bool:
     """
-    Wrapper générique autour de send_mail.
-    Retourne True si l'envoi a réussi, False sinon (sans lever d'exception).
+    Generic wrapper around send_mail.
+    Returns True if sending succeeded, False otherwise (no exception raised).
     """
     plain_text = strip_tags(html_body)
     try:
@@ -45,40 +44,40 @@ def _send(subject: str, html_body: str, recipient: str) -> bool:
             html_message=html_body,
             fail_silently=False,
         )
-        logger.info(f"Email envoyé avec succès → {recipient} | Sujet : {subject}")
+        logger.info(f"Email sent successfully → {recipient} | Subject: {subject}")
         return True
     except Exception as exc:
-        logger.error(f"Échec d'envoi d'email → {recipient} | Sujet : {subject} | Erreur : {exc}")
+        logger.error(f"Failed to send email → {recipient} | Subject: {subject} | Error: {exc}")
         return False
 
 
 # ---------------------------------------------------------------------------
-# 1. Notification Admin — nouveau Manager inscrit
+# 1. Notify Admin — new Manager registered
 # ---------------------------------------------------------------------------
 
 def notify_admin_new_manager(manager) -> bool:
     """
-    Envoie un email à l'admin lorsqu'un nouveau manager s'inscrit.
+    Sends an email to the admin when a new manager registers.
 
     Args:
-        manager : instance User (role=manager, status=pending)
+        manager: User instance (role=manager, status=pending)
 
     Returns:
-        True si l'email a été envoyé avec succès.
+        True if the email was sent successfully.
     """
     admin_email = _get_admin_email()
     frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
     verification_url = f"{frontend_url}/admin/verification"
 
-    subject = f"[FASI] Nouvelle demande de compte Manager — {manager.full_name}"
+    subject = f"[WEEG] New Manager Account Request — {manager.full_name}"
 
     html_body = f"""
     <!DOCTYPE html>
-    <html lang="fr">
+    <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Nouvelle demande Manager</title>
+        <title>New Manager Request</title>
     </head>
     <body style="margin:0; padding:0; background-color:#f8fafc; font-family: 'Segoe UI', Arial, sans-serif;">
         <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc; padding: 40px 20px;">
@@ -90,10 +89,10 @@ def notify_admin_new_manager(manager) -> bool:
                         <tr>
                             <td style="background: linear-gradient(135deg, #4f46e5, #7c3aed); padding: 32px 40px; text-align:center;">
                                 <div style="display:inline-block; background:rgba(255,255,255,0.15); border-radius:12px; padding:12px 20px; margin-bottom:16px;">
-                                    <span style="color:#ffffff; font-size:28px; font-weight:900; letter-spacing:2px;">FASI</span>
+                                    <span style="color:#ffffff; font-size:28px; font-weight:900; letter-spacing:2px;">WEEG</span>
                                 </div>
                                 <h1 style="color:#ffffff; margin:0; font-size:22px; font-weight:600;">
-                                    Nouvelle demande de compte Manager
+                                    New Manager Account Request
                                 </h1>
                             </td>
                         </tr>
@@ -102,11 +101,11 @@ def notify_admin_new_manager(manager) -> bool:
                         <tr>
                             <td style="padding: 40px;">
                                 <p style="color:#374151; font-size:16px; margin:0 0 24px;">
-                                    Bonjour Administrateur,
+                                    Hello Administrator,
                                 </p>
                                 <p style="color:#6b7280; font-size:15px; margin:0 0 28px; line-height:1.6;">
-                                    Un nouveau Manager vient de créer un compte sur la plateforme FASI.
-                                    Son compte est actuellement <strong style="color:#f59e0b;">en attente de validation</strong>.
+                                    A new Manager has just created an account on the WEEG platform.
+                                    Their account is currently <strong style="color:#f59e0b;">pending approval</strong>.
                                 </p>
 
                                 <!-- Manager Info Card -->
@@ -114,11 +113,11 @@ def notify_admin_new_manager(manager) -> bool:
                                     style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:10px; margin-bottom:32px;">
                                     <tr>
                                         <td style="padding:24px;">
-                                            <p style="margin:0 0 4px; color:#9ca3af; font-size:12px; text-transform:uppercase; letter-spacing:1px;">Informations du candidat</p>
+                                            <p style="margin:0 0 4px; color:#9ca3af; font-size:12px; text-transform:uppercase; letter-spacing:1px;">Candidate Information</p>
                                             <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;">
                                                 <tr>
                                                     <td style="padding:8px 0; border-bottom:1px solid #f3f4f6;">
-                                                        <span style="color:#6b7280; font-size:14px;">Nom complet</span>
+                                                        <span style="color:#6b7280; font-size:14px;">Full name</span>
                                                     </td>
                                                     <td style="padding:8px 0; border-bottom:1px solid #f3f4f6; text-align:right;">
                                                         <strong style="color:#111827; font-size:14px;">{manager.full_name}</strong>
@@ -134,7 +133,7 @@ def notify_admin_new_manager(manager) -> bool:
                                                 </tr>
                                                 <tr>
                                                     <td style="padding:8px 0; border-bottom:1px solid #f3f4f6;">
-                                                        <span style="color:#6b7280; font-size:14px;">Société</span>
+                                                        <span style="color:#6b7280; font-size:14px;">Company</span>
                                                     </td>
                                                     <td style="padding:8px 0; border-bottom:1px solid #f3f4f6; text-align:right;">
                                                         <strong style="color:#111827; font-size:14px;">{manager.company_name or "—"}</strong>
@@ -142,7 +141,7 @@ def notify_admin_new_manager(manager) -> bool:
                                                 </tr>
                                                 <tr>
                                                     <td style="padding:8px 0;">
-                                                        <span style="color:#6b7280; font-size:14px;">Téléphone</span>
+                                                        <span style="color:#6b7280; font-size:14px;">Phone</span>
                                                     </td>
                                                     <td style="padding:8px 0; text-align:right;">
                                                         <strong style="color:#111827; font-size:14px;">{manager.phone_number or "—"}</strong>
@@ -162,15 +161,15 @@ def notify_admin_new_manager(manager) -> bool:
                                                       color:#ffffff; font-size:15px; font-weight:600;
                                                       padding:14px 36px; border-radius:8px; text-decoration:none;
                                                       letter-spacing:0.3px;">
-                                                Examiner la demande →
+                                                Review Request →
                                             </a>
                                         </td>
                                     </tr>
                                 </table>
 
                                 <p style="color:#9ca3af; font-size:13px; margin:28px 0 0; text-align:center; line-height:1.5;">
-                                    Ce lien vous redirige vers la page de vérification Admin de FASI.<br>
-                                    Vous pouvez approuver ou rejeter ce compte depuis l'interface.
+                                    This link redirects you to the WEEG Admin verification page.<br>
+                                    You can approve or reject this account from the interface.
                                 </p>
                             </td>
                         </tr>
@@ -179,8 +178,8 @@ def notify_admin_new_manager(manager) -> bool:
                         <tr>
                             <td style="background:#f9fafb; border-top:1px solid #e5e7eb; padding:20px 40px; text-align:center;">
                                 <p style="color:#9ca3af; font-size:12px; margin:0;">
-                                    FASI — Financial Analytics & System Intelligence<br>
-                                    Cet email est automatique, merci de ne pas y répondre.
+                                    WEEG — Financial Analytics & System Intelligence<br>
+                                    This is an automated email, please do not reply.
                                 </p>
                             </td>
                         </tr>
@@ -197,31 +196,31 @@ def notify_admin_new_manager(manager) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# 2. Notification Manager — compte approuvé
+# 2. Notify Manager — account approved
 # ---------------------------------------------------------------------------
 
 def notify_manager_approved(manager) -> bool:
     """
-    Envoie un email au manager pour l'informer que son compte a été approuvé.
+    Sends an email to the manager informing them that their account has been approved.
 
     Args:
-        manager : instance User (role=manager)
+        manager: User instance (role=manager)
 
     Returns:
-        True si l'email a été envoyé avec succès.
+        True if the email was sent successfully.
     """
     frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
     login_url = f"{frontend_url}/login"
 
-    subject = "[FASI] Votre compte Manager a été approuvé ✓"
+    subject = "[WEEG] Your Manager Account Has Been Approved ✓"
 
     html_body = f"""
     <!DOCTYPE html>
-    <html lang="fr">
+    <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Compte approuvé</title>
+        <title>Account Approved</title>
     </head>
     <body style="margin:0; padding:0; background-color:#f8fafc; font-family: 'Segoe UI', Arial, sans-serif;">
         <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc; padding: 40px 20px;">
@@ -233,13 +232,13 @@ def notify_manager_approved(manager) -> bool:
                         <tr>
                             <td style="background: linear-gradient(135deg, #059669, #10b981); padding: 32px 40px; text-align:center;">
                                 <div style="display:inline-block; background:rgba(255,255,255,0.15); border-radius:12px; padding:12px 20px; margin-bottom:16px;">
-                                    <span style="color:#ffffff; font-size:28px; font-weight:900; letter-spacing:2px;">FASI</span>
+                                    <span style="color:#ffffff; font-size:28px; font-weight:900; letter-spacing:2px;">WEEG</span>
                                 </div>
                                 <div style="width:56px; height:56px; background:rgba(255,255,255,0.2); border-radius:50%; margin:0 auto 12px; display:flex; align-items:center; justify-content:center;">
                                     <span style="font-size:28px;">✓</span>
                                 </div>
                                 <h1 style="color:#ffffff; margin:0; font-size:22px; font-weight:600;">
-                                    Compte approuvé !
+                                    Account Approved!
                                 </h1>
                             </td>
                         </tr>
@@ -248,12 +247,12 @@ def notify_manager_approved(manager) -> bool:
                         <tr>
                             <td style="padding: 40px;">
                                 <p style="color:#374151; font-size:16px; margin:0 0 16px;">
-                                    Bonjour <strong>{manager.full_name}</strong>,
+                                    Hello <strong>{manager.full_name}</strong>,
                                 </p>
                                 <p style="color:#6b7280; font-size:15px; margin:0 0 24px; line-height:1.6;">
-                                    Bonne nouvelle ! Votre demande de compte Manager sur la plateforme FASI a été
-                                    <strong style="color:#059669;">approuvée par l'administrateur</strong>.
-                                    Vous pouvez maintenant vous connecter et commencer à utiliser l'application.
+                                    Great news! Your Manager account request on the WEEG platform has been
+                                    <strong style="color:#059669;">approved by the administrator</strong>.
+                                    You can now log in and start using the application.
                                 </p>
 
                                 <!-- What you can do -->
@@ -262,27 +261,27 @@ def notify_manager_approved(manager) -> bool:
                                     <tr>
                                         <td style="padding:24px;">
                                             <p style="margin:0 0 16px; color:#166534; font-size:14px; font-weight:600;">
-                                                Ce que vous pouvez faire dès maintenant :
+                                                What you can do right now:
                                             </p>
                                             <table width="100%" cellpadding="0" cellspacing="0">
                                                 <tr>
                                                     <td style="padding:6px 0; color:#166534; font-size:14px;">
-                                                        ✓ &nbsp; Accéder au tableau de bord FASI
+                                                        ✓ &nbsp; Access the WEEG dashboard
                                                     </td>
                                                 </tr>
                                                 <tr>
                                                     <td style="padding:6px 0; color:#166534; font-size:14px;">
-                                                        ✓ &nbsp; Créer des comptes agents pour votre équipe
+                                                        ✓ &nbsp; Create agent accounts for your team
                                                     </td>
                                                 </tr>
                                                 <tr>
                                                     <td style="padding:6px 0; color:#166534; font-size:14px;">
-                                                        ✓ &nbsp; Consulter les rapports et analyses financières
+                                                        ✓ &nbsp; View financial reports and analytics
                                                     </td>
                                                 </tr>
                                                 <tr>
                                                     <td style="padding:6px 0; color:#166534; font-size:14px;">
-                                                        ✓ &nbsp; Configurer les alertes pour votre société
+                                                        ✓ &nbsp; Set up alerts for your company
                                                     </td>
                                                 </tr>
                                             </table>
@@ -299,14 +298,14 @@ def notify_manager_approved(manager) -> bool:
                                                       color:#ffffff; font-size:15px; font-weight:600;
                                                       padding:14px 36px; border-radius:8px; text-decoration:none;
                                                       letter-spacing:0.3px;">
-                                                Se connecter à FASI →
+                                                Log in to WEEG →
                                             </a>
                                         </td>
                                     </tr>
                                 </table>
 
                                 <p style="color:#9ca3af; font-size:13px; margin:28px 0 0; text-align:center;">
-                                    Utilisez votre email <strong>{manager.email}</strong> et le mot de passe choisi lors de l'inscription.
+                                    Use your email <strong>{manager.email}</strong> and the password you chose during registration.
                                 </p>
                             </td>
                         </tr>
@@ -315,8 +314,8 @@ def notify_manager_approved(manager) -> bool:
                         <tr>
                             <td style="background:#f9fafb; border-top:1px solid #e5e7eb; padding:20px 40px; text-align:center;">
                                 <p style="color:#9ca3af; font-size:12px; margin:0;">
-                                    FASI — Financial Analytics & System Intelligence<br>
-                                    Cet email est automatique, merci de ne pas y répondre.
+                                    WEEG — Financial Analytics & System Intelligence<br>
+                                    This is an automated email, please do not reply.
                                 </p>
                             </td>
                         </tr>
@@ -333,21 +332,21 @@ def notify_manager_approved(manager) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# 3. Notification Manager — compte rejeté
+# 3. Notify Manager — account rejected
 # ---------------------------------------------------------------------------
 
 def notify_manager_rejected(manager, reason: str = "") -> bool:
     """
-    Envoie un email au manager pour l'informer que son compte a été rejeté.
+    Sends an email to the manager informing them that their account request was rejected.
 
     Args:
-        manager : instance User (role=manager)
-        reason  : motif de rejet renseigné par l'admin
+        manager: User instance (role=manager)
+        reason: rejection reason provided by the admin
 
     Returns:
-        True si l'email a été envoyé avec succès.
+        True if the email was sent successfully.
     """
-    subject = "[FASI] Votre demande de compte Manager n'a pas été acceptée"
+    subject = "[WEEG] Your Manager Account Request Was Not Accepted"
 
     reason_block = ""
     if reason.strip():
@@ -357,7 +356,7 @@ def notify_manager_rejected(manager, reason: str = "") -> bool:
             <tr>
                 <td style="padding:20px 24px;">
                     <p style="margin:0 0 8px; color:#9a3412; font-size:14px; font-weight:600;">
-                        Motif communiqué par l'administrateur :
+                        Reason provided by the administrator:
                     </p>
                     <p style="margin:0; color:#c2410c; font-size:14px; line-height:1.6; font-style:italic;">
                         "{reason}"
@@ -369,11 +368,11 @@ def notify_manager_rejected(manager, reason: str = "") -> bool:
 
     html_body = f"""
     <!DOCTYPE html>
-    <html lang="fr">
+    <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Demande refusée</title>
+        <title>Request Denied</title>
     </head>
     <body style="margin:0; padding:0; background-color:#f8fafc; font-family: 'Segoe UI', Arial, sans-serif;">
         <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc; padding: 40px 20px;">
@@ -385,10 +384,10 @@ def notify_manager_rejected(manager, reason: str = "") -> bool:
                         <tr>
                             <td style="background: linear-gradient(135deg, #dc2626, #ef4444); padding: 32px 40px; text-align:center;">
                                 <div style="display:inline-block; background:rgba(255,255,255,0.15); border-radius:12px; padding:12px 20px; margin-bottom:16px;">
-                                    <span style="color:#ffffff; font-size:28px; font-weight:900; letter-spacing:2px;">FASI</span>
+                                    <span style="color:#ffffff; font-size:28px; font-weight:900; letter-spacing:2px;">WEEG</span>
                                 </div>
                                 <h1 style="color:#ffffff; margin:0; font-size:22px; font-weight:600;">
-                                    Demande non acceptée
+                                    Request Not Accepted
                                 </h1>
                             </td>
                         </tr>
@@ -397,18 +396,18 @@ def notify_manager_rejected(manager, reason: str = "") -> bool:
                         <tr>
                             <td style="padding: 40px;">
                                 <p style="color:#374151; font-size:16px; margin:0 0 16px;">
-                                    Bonjour <strong>{manager.full_name}</strong>,
+                                    Hello <strong>{manager.full_name}</strong>,
                                 </p>
                                 <p style="color:#6b7280; font-size:15px; margin:0 0 24px; line-height:1.6;">
-                                    Après examen de votre dossier, nous sommes dans l'impossibilité
-                                    d'approuver votre demande de compte Manager sur la plateforme FASI.
+                                    After reviewing your application, we are unable to approve
+                                    your Manager account request on the WEEG platform.
                                 </p>
 
                                 {reason_block}
 
                                 <p style="color:#6b7280; font-size:14px; margin:0 0 0; line-height:1.6;">
-                                    Si vous pensez qu'il s'agit d'une erreur ou si vous souhaitez obtenir
-                                    plus d'informations, veuillez contacter directement l'administrateur FASI.
+                                    If you believe this is an error or would like more information,
+                                    please contact the WEEG administrator directly.
                                 </p>
                             </td>
                         </tr>
@@ -417,8 +416,8 @@ def notify_manager_rejected(manager, reason: str = "") -> bool:
                         <tr>
                             <td style="background:#f9fafb; border-top:1px solid #e5e7eb; padding:20px 40px; text-align:center;">
                                 <p style="color:#9ca3af; font-size:12px; margin:0;">
-                                    FASI — Financial Analytics & System Intelligence<br>
-                                    Cet email est automatique, merci de ne pas y répondre.
+                                    WEEG — Financial Analytics & System Intelligence<br>
+                                    This is an automated email, please do not reply.
                                 </p>
                             </td>
                         </tr>

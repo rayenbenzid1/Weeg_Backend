@@ -7,13 +7,13 @@ logger = logging.getLogger("django")
 
 class BranchFilterMixin:
     """
-    Mixin qui filtre automatiquement les querysets par succursale.
+    Mixin that automatically filters querysets by branch.
     
-    - Admin    : voit toutes les succursales
-    - Manager  : voit uniquement sa succursale
-    - Agent    : voit uniquement sa succursale
+    - Admin    : sees all branches
+    - Manager  : sees only their own branch
+    - Agent    : sees only their own branch
     
-    À utiliser dans les vues qui retournent des données liées à une succursale.
+    To be used in views that return branch-related data.
     """
 
     def get_branch_queryset(self, queryset):
@@ -27,34 +27,34 @@ class BranchFilterMixin:
 
 class AuditLogMixin:
     """
-    Mixin qui log automatiquement les actions CRUD importantes.
-    À utiliser dans les vues sensibles (création, modification, suppression).
+    Mixin that automatically logs important CRUD actions.
+    To be used in sensitive views (create, update, delete).
     """
 
     def log_action(self, action: str, target: str, details: str = "") -> None:
         user = getattr(self.request, "user", None)
-        user_email = user.email if user and user.is_authenticated else "anonyme"
+        user_email = user.email if user and user.is_authenticated else "anonymous"
         logger.info(f"[AUDIT] {action} | User: {user_email} | Target: {target} | {details}")
 
 
 class StandardResponseMixin:
     """
-    Mixin pour formater les réponses API de manière cohérente.
+    Mixin to format API responses consistently.
     
-    success_response() → 200/201 avec message et data
-    error_response()   → 4xx avec message d'erreur
+    success_response() → 200/201 with message and data
+    error_response()   → 4xx with error message
     """
 
-    def success_response(self, data=None, message="Succès.", status_code=status.HTTP_200_OK):
+    def success_response(self, data=None, message="Success.", status_code=status.HTTP_200_OK):
         response_data = {"message": message}
         if data is not None:
             response_data["data"] = data
         return Response(response_data, status=status_code)
 
-    def created_response(self, data=None, message="Créé avec succès."):
+    def created_response(self, data=None, message="Created successfully."):
         return self.success_response(data=data, message=message, status_code=status.HTTP_201_CREATED)
 
-    def error_response(self, message="Une erreur est survenue.", status_code=status.HTTP_400_BAD_REQUEST, errors=None):
+    def error_response(self, message="An error occurred.", status_code=status.HTTP_400_BAD_REQUEST, errors=None):
         response_data = {"error": message}
         if errors:
             response_data["errors"] = errors
@@ -63,9 +63,9 @@ class StandardResponseMixin:
 
 class PermissionByRoleMixin:
     """
-    Mixin pour définir des permissions différentes selon la méthode HTTP.
+    Mixin to define different permissions based on HTTP method.
     
-    Utilisation dans la vue :
+    Usage in the view:
         permission_classes_by_method = {
             'GET': [IsAuthenticated],
             'POST': [IsAuthenticated, IsAdmin],

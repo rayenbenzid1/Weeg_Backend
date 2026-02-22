@@ -4,15 +4,15 @@ from django.db import models
 
 class Company(models.Model):
     """
-    Modèle représentant une société (entreprise cliente).
+    Model representing a company (client organization).
 
-    Hiérarchie :
-        Company → Branch (plusieurs succursales par société)
-        Company → Manager (chaque manager appartient à une société)
-        Company → Agent  (via son manager, même société)
+    Hierarchy:
+        Company → Branch (multiple branches per company)
+        Company → Manager (each manager belongs to one company)
+        Company → Agent   (via their manager, same company)
 
-    Une Company est créée automatiquement lors de l'inscription d'un Manager
-    (si elle n'existe pas déjà) ou peut être pré-créée par l'Admin.
+    A Company is automatically created when a Manager registers
+    (if it doesn't already exist) or can be pre-created by an Admin.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -20,43 +20,44 @@ class Company(models.Model):
     name = models.CharField(
         max_length=255,
         unique=True,
-        verbose_name="Nom de la société",
-        help_text="Nom officiel de la société.",
+        verbose_name="Company name",
+        help_text="Official name of the company.",
     )
 
     industry = models.CharField(
         max_length=100,
         blank=True,
         null=True,
-        verbose_name="Secteur d'activité",
+        verbose_name="Industry / Sector",
+        help_text="Main business sector or industry.",
     )
 
     phone = models.CharField(
         max_length=20,
         blank=True,
         null=True,
-        verbose_name="Téléphone",
+        verbose_name="Phone number",
     )
 
     address = models.TextField(
         blank=True,
         null=True,
-        verbose_name="Adresse",
+        verbose_name="Address",
     )
 
     is_active = models.BooleanField(
         default=True,
-        verbose_name="Active",
-        help_text="Désactiver pour suspendre l'accès à toute la société.",
+        verbose_name="Is active",
+        help_text="Disable to suspend access for the entire company.",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="Dernière modification")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created at")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Last modified")
 
     class Meta:
         db_table = "company"
-        verbose_name = "Société"
-        verbose_name_plural = "Sociétés"
+        verbose_name = "Company"
+        verbose_name_plural = "Companies"
         ordering = ["name"]
 
     def __str__(self):
