@@ -3,6 +3,8 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from apps.companies.models import Company
+
 User = get_user_model()
 
 
@@ -13,10 +15,11 @@ User = get_user_model()
 class UserProfileSerializer(serializers.ModelSerializer):
     """
     Affiche le profil complet de l'utilisateur connecté.
-    Utilisé par GET /api/auth/profile/
+    Utilisé par GET /api/users/profile/
     """
     full_name = serializers.CharField(read_only=True)
     branch_name = serializers.CharField(source="branch.name", read_only=True, default=None)
+    company_name = serializers.CharField(read_only=True)
 
     class Meta:
         model = User
@@ -32,24 +35,26 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "permissions_list",
             "branch",
             "branch_name",
+            "company",
+            "company_name",
             "must_change_password",
             "is_verified",
             "created_at",
         ]
         read_only_fields = [
             "id", "email", "role", "status", "permissions_list",
-            "branch", "branch_name", "full_name", "must_change_password",
-            "is_verified", "created_at",
+            "branch", "branch_name", "company", "company_name",
+            "full_name", "must_change_password", "is_verified", "created_at",
         ]
 
 
 class UserListSerializer(serializers.ModelSerializer):
     """
     Affichage simplifié d'un utilisateur dans une liste.
-    Utilisé par le manager pour voir la liste de ses agents.
     """
     full_name = serializers.CharField(read_only=True)
     branch_name = serializers.CharField(source="branch.name", read_only=True, default=None)
+    company_name = serializers.CharField(read_only=True)
 
     class Meta:
         model = User
@@ -61,7 +66,10 @@ class UserListSerializer(serializers.ModelSerializer):
             "role",
             "status",
             "branch_name",
+            "company",
+            "company_name",
             "created_at",
+            "permissions_list",
         ]
         read_only_fields = fields
 
@@ -73,17 +81,10 @@ class UserListSerializer(serializers.ModelSerializer):
 class UpdateProfileSerializer(serializers.ModelSerializer):
     """
     Permet à un utilisateur de mettre à jour son propre profil.
-    Seuls les champs non sensibles sont modifiables.
-    Utilisé par PATCH /api/auth/profile/
     """
-
     class Meta:
         model = User
-        fields = [
-            "first_name",
-            "last_name",
-            "phone_number",
-        ]
+        fields = ["first_name", "last_name", "phone_number"]
 
     def validate_first_name(self, value):
         if not value.strip():
@@ -99,32 +100,12 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
 class ChangePasswordSerializer(serializers.Serializer):
     """
     Permet à un utilisateur connecté de changer son propre mot de passe.
-    Exige l'ancien mot de passe pour validation.
-    Utilisé par POST /api/auth/change-password/
-
-    Après succès :
-        - token_version incrémenté → tous les anciens tokens invalidés
-        - must_change_password mis à False (pour les agents au premier login)
     """
-    old_password = serializers.CharField(
-        write_only=True,
-        required=True,
-        help_text="Mot de passe actuel de l'utilisateur.",
-    )
-    new_password = serializers.CharField(
-        write_only=True,
-        required=True,
-        min_length=8,
-        help_text="Nouveau mot de passe (minimum 8 caractères).",
-    )
-    new_password_confirm = serializers.CharField(
-        write_only=True,
-        required=True,
-        help_text="Confirmation du nouveau mot de passe.",
-    )
+    old_password = serializers.CharField(write_only=True, required=True)
+    new_password = serializers.CharField(write_only=True, required=True, min_length=8)
+    new_password_confirm = serializers.CharField(write_only=True, required=True)
 
     def validate_new_password(self, value):
-        """Applique les validateurs de mot de passe Django (longueur, complexité...)."""
         try:
             validate_password(value)
         except DjangoValidationError as e:
@@ -144,26 +125,21 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 
 # =============================================================================
-# SERIALIZERS SIGNUP MANAGER (SCRUM-37)
+# SERIALIZERS SIGNUP MANAGER
 # =============================================================================
 
 class ManagerSignupSerializer(serializers.ModelSerializer):
     """
     Permet à un manager de s'inscrire via le formulaire public.
     Le compte est créé avec le statut PENDING.
-    Un email est envoyé à l'admin pour approbation.
-    Utilisé par POST /api/auth/signup/
+    Le champ 'company_name' crée ou réutilise une Company existante.
     """
-    password = serializers.CharField(
-        write_only=True,
+    password = serializers.CharField(write_only=True, required=True, min_length=8)
+    password_confirm = serializers.CharField(write_only=True, required=True)
+    company_name = serializers.CharField(
         required=True,
-        min_length=8,
-        help_text="Mot de passe (minimum 8 caractères).",
-    )
-    password_confirm = serializers.CharField(
-        write_only=True,
-        required=True,
-        help_text="Confirmation du mot de passe.",
+        max_length=255,
+        help_text="Nom officiel de la société du manager.",
     )
 
     class Meta:
@@ -173,6 +149,7 @@ class ManagerSignupSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "phone_number",
+            "company_name",
             "password",
             "password_confirm",
         ]
@@ -182,6 +159,12 @@ class ManagerSignupSerializer(serializers.ModelSerializer):
         if User.objects.filter(email=email).exists():
             raise serializers.ValidationError("Cette adresse email est déjà utilisée.")
         return email
+
+    def validate_company_name(self, value):
+        name = value.strip()
+        if not name:
+            raise serializers.ValidationError("Le nom de la société est obligatoire.")
+        return name
 
     def validate_password(self, value):
         try:
@@ -200,12 +183,17 @@ class ManagerSignupSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop("password_confirm")
         password = validated_data.pop("password")
+        company_name = validated_data.pop("company_name")
+
+        # Récupère ou crée la société
+        company, _ = Company.objects.get_or_create(name=company_name)
 
         user = User(
             role=User.Role.MANAGER,
             status=User.AccountStatus.PENDING,
             is_verified=False,
             must_change_password=False,
+            company=company,
             **validated_data,
         )
         user.set_password(password)
@@ -214,21 +202,19 @@ class ManagerSignupSerializer(serializers.ModelSerializer):
 
 
 # =============================================================================
-# SERIALIZERS CRÉATION AGENT PAR MANAGER (SCRUM-21)
+# SERIALIZERS CRÉATION AGENT PAR MANAGER
 # =============================================================================
 
 class CreateAgentSerializer(serializers.ModelSerializer):
     """
     Permet à un manager de créer un compte agent.
-    Le mot de passe initial est temporaire. L'agent devra le changer au premier login.
-    Un email avec les identifiants est envoyé automatiquement à l'agent.
-    Utilisé par POST /api/auth/agents/
+    La Company de l'agent est automatiquement celle du Manager — non modifiable.
     """
     temporary_password = serializers.CharField(
         write_only=True,
         required=True,
         min_length=8,
-        help_text="Mot de passe temporaire pour l'agent. Il devra le changer au premier login.",
+        help_text="Mot de passe temporaire pour l'agent.",
     )
 
     class Meta:
@@ -249,15 +235,6 @@ class CreateAgentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Cette adresse email est déjà utilisée.")
         return email
 
-    def validate_branch(self, value):
-        """
-        Vérifie que la succursale appartient bien au manager qui crée l'agent.
-        La validation est complétée dans la vue avec le contexte du manager connecté.
-        """
-        if value is None:
-            raise serializers.ValidationError("La succursale est obligatoire pour un agent.")
-        return value
-
     def create(self, validated_data):
         temporary_password = validated_data.pop("temporary_password")
         manager = self.context["request"].user
@@ -268,6 +245,8 @@ class CreateAgentSerializer(serializers.ModelSerializer):
             is_verified=True,
             must_change_password=True,
             created_by=manager,
+            # L'agent hérite automatiquement de la Company de son Manager
+            company=manager.company,
             **validated_data,
         )
         user.set_password(temporary_password)
@@ -276,48 +255,24 @@ class CreateAgentSerializer(serializers.ModelSerializer):
 
 
 # =============================================================================
-# SERIALIZERS RESET PASSWORD (SCRUM-23)
+# SERIALIZERS RESET PASSWORD
 # =============================================================================
 
 class RequestPasswordResetSerializer(serializers.Serializer):
-    """
-    Demande de réinitialisation de mot de passe.
-    Utilisé par l'admin ou le manager pour envoyer un lien de reset à un utilisateur.
-    Utilisé par POST /api/auth/password-reset/request/
-    """
-    user_id = serializers.UUIDField(
-        required=True,
-        help_text="UUID de l'utilisateur dont le mot de passe doit être réinitialisé.",
-    )
+    user_id = serializers.UUIDField(required=True)
 
     def validate_user_id(self, value):
         try:
-            user = User.objects.get(id=value)
+            User.objects.get(id=value)
         except User.DoesNotExist:
             raise serializers.ValidationError("Utilisateur introuvable.")
         return value
 
 
 class ConfirmPasswordResetSerializer(serializers.Serializer):
-    """
-    Confirmation de la réinitialisation avec le token temporaire reçu par email.
-    Utilisé par POST /api/auth/password-reset/confirm/
-    """
-    token = serializers.CharField(
-        required=True,
-        help_text="Token temporaire reçu par email.",
-    )
-    new_password = serializers.CharField(
-        write_only=True,
-        required=True,
-        min_length=8,
-        help_text="Nouveau mot de passe.",
-    )
-    new_password_confirm = serializers.CharField(
-        write_only=True,
-        required=True,
-        help_text="Confirmation du nouveau mot de passe.",
-    )
+    token = serializers.CharField(required=True)
+    new_password = serializers.CharField(write_only=True, required=True, min_length=8)
+    new_password_confirm = serializers.CharField(write_only=True, required=True)
 
     def validate_new_password(self, value):
         try:
@@ -339,31 +294,28 @@ class ConfirmPasswordResetSerializer(serializers.Serializer):
 # =============================================================================
 
 class UpdateUserPermissionsSerializer(serializers.ModelSerializer):
-    """
-    Permet à un admin ou manager de modifier les permissions d'un utilisateur.
-    Utilisé par PATCH /api/auth/users/{id}/permissions/
-    """
-
     class Meta:
         model = User
         fields = ["permissions_list"]
 
     def validate_permissions_list(self, value):
-        """Vérifie que les permissions envoyées font partie des permissions autorisées."""
         allowed_permissions = {
+            "import-data",
+            "export-data",
             "view-dashboard",
             "view-reports",
-            "export-reports",
-            "manage-alerts",
-            "view-inventory",
-            "manage-inventory",
-            "view-transactions",
-            "manage-transactions",
-            "view-customers",
-            "manage-customers",
+            "generate-reports",
             "view-kpi",
-            "import-data",
-            "download-templates",
+            "filter-dashboard",
+            "view-sales",
+            "view-inventory",
+            "view-customer-payments",
+            "view-aging",
+            "receive-notifications",
+            "manage-alerts",
+            "view-profile",
+            "change-password",
+            "ai-insights",
         }
         invalid = set(value) - allowed_permissions
         if invalid:
@@ -372,17 +324,8 @@ class UpdateUserPermissionsSerializer(serializers.ModelSerializer):
             )
         return value
 
-
 class UpdateUserStatusSerializer(serializers.ModelSerializer):
-    """
-    Permet à un admin de suspendre ou réactiver un compte.
-    Utilisé par PATCH /api/auth/users/{id}/status/
-    """
-    reason = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Motif de la suspension ou réactivation (optionnel).",
-    )
+    reason = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = User
@@ -398,20 +341,8 @@ class UpdateUserStatusSerializer(serializers.ModelSerializer):
 
 
 class ApproveRejectManagerSerializer(serializers.Serializer):
-    """
-    Permet à l'admin d'approuver ou rejeter la demande d'un manager.
-    Utilisé par POST /api/auth/signup/review/{id}/
-    """
-    action = serializers.ChoiceField(
-        choices=["approve", "reject"],
-        required=True,
-        help_text="'approve' pour approuver, 'reject' pour rejeter.",
-    )
-    reason = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Motif du rejet (obligatoire si action = 'reject').",
-    )
+    action = serializers.ChoiceField(choices=["approve", "reject"], required=True)
+    reason = serializers.CharField(required=False, allow_blank=True)
 
     def validate(self, data):
         if data["action"] == "reject" and not data.get("reason", "").strip():

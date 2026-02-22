@@ -4,6 +4,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+import threading
 
 from core.permissions import IsAdmin, IsManager, IsAdminOrManager
 from .serializers import (
@@ -14,6 +15,12 @@ from .serializers import (
     CreateAgentSerializer,
     UpdateUserPermissionsSerializer,
     UpdateUserStatusSerializer,
+
+)
+from .email_service import (
+    notify_admin_new_manager,
+    notify_manager_approved,
+    notify_manager_rejected,
 )
 from .services import UserService
 
@@ -96,22 +103,63 @@ class ChangePasswordView(APIView):
         )
 
 
+# class CreateAgentView(APIView):
+#     """
+#     POST /api/auth/agents/
+
+#     Permet à un manager de créer un compte agent.
+#     Le manager ne peut créer des agents que pour sa propre succursale.
+
+#     Corps de la requête :
+#         - email, first_name, last_name, phone_number
+#         - branch : UUID de la succursale (doit être celle du manager)
+#         - permissions_list : liste des permissions à accorder
+#         - temporary_password : mot de passe temporaire
+
+#     Après succès :
+#         - Compte agent créé avec must_change_password = True
+#         - Email avec les identifiants envoyé à l'agent
+#     """
+#     permission_classes = [IsAuthenticated, IsManager]
+
+#     def post(self, request):
+#         serializer = CreateAgentSerializer(
+#             data=request.data,
+#             context={"request": request},
+#         )
+#         if not serializer.is_valid():
+#             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+#         # Vérification que la succursale appartient au manager connecté
+#         branch = serializer.validated_data.get("branch")
+#         if branch and request.user.branch and branch.id != request.user.branch.id:
+#             return Response(
+#                 {"error": "Vous ne pouvez créer des agents que pour votre propre succursale."},
+#                 status=status.HTTP_403_FORBIDDEN,
+#             )
+
+#         temporary_password = request.data.get("temporary_password")
+#         agent = UserService.create_agent(
+#             validated_data=serializer.validated_data,
+#             manager=request.user,
+#             temporary_password=temporary_password,
+#         )
+
+#         return Response(
+#             {
+#                 "message": f"Compte agent créé avec succès. "
+#                            f"Les identifiants ont été envoyés à {agent.email}.",
+#                 "agent": UserListSerializer(agent).data,
+#             },
+#             status=status.HTTP_201_CREATED,
+#         )
+
 class CreateAgentView(APIView):
     """
-    POST /api/auth/agents/
+    POST /api/users/agents/create/
 
     Permet à un manager de créer un compte agent.
-    Le manager ne peut créer des agents que pour sa propre succursale.
-
-    Corps de la requête :
-        - email, first_name, last_name, phone_number
-        - branch : UUID de la succursale (doit être celle du manager)
-        - permissions_list : liste des permissions à accorder
-        - temporary_password : mot de passe temporaire
-
-    Après succès :
-        - Compte agent créé avec must_change_password = True
-        - Email avec les identifiants envoyé à l'agent
+    La Company de l'agent est automatiquement celle du Manager — aucune saisie requise.
     """
     permission_classes = [IsAuthenticated, IsManager]
 
@@ -123,7 +171,7 @@ class CreateAgentView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # Vérification que la succursale appartient au manager connecté
+        # Vérification optionnelle de la succursale (si fournie, doit appartenir au manager)
         branch = serializer.validated_data.get("branch")
         if branch and request.user.branch and branch.id != request.user.branch.id:
             return Response(
@@ -140,43 +188,67 @@ class CreateAgentView(APIView):
 
         return Response(
             {
-                "message": f"Compte agent créé avec succès. "
-                           f"Les identifiants ont été envoyés à {agent.email}.",
+                "message": f"Compte agent créé avec succès. Les identifiants ont été envoyés à {agent.email}.",
                 "agent": UserListSerializer(agent).data,
             },
             status=status.HTTP_201_CREATED,
         )
+
+# class AgentListView(APIView):
+#     """
+#     GET /api/users/agents/
+
+#     ✅ Manager → voit uniquement les agents de SA succursale.
+#     ✅ Admin   → voit TOUS les agents de toutes les succursales.
+#     ❌ Agent   → 403 Forbidden.
+#     """
+#     permission_classes = [IsAuthenticated, IsAdminOrManager]
+
+#     def get(self, request):
+#         if request.user.is_admin:
+#             # L'admin voit tous les agents de toutes les succursales
+#             agents = User.objects.filter(
+#                 role=User.Role.AGENT,
+#             ).order_by("-created_at")
+#         else:
+#             # Le manager voit uniquement les agents de sa succursale
+#             agents = User.objects.filter(
+#                 role=User.Role.AGENT,
+#                 branch=request.user.branch,
+#             ).order_by("-created_at")
+
+#         serializer = UserListSerializer(agents, many=True)
+#         return Response(
+#             {
+#                 "count": agents.count(),
+#                 "agents": serializer.data,
+#             },
+#             status=status.HTTP_200_OK,
+#         )
 
 
 class AgentListView(APIView):
     """
     GET /api/users/agents/
 
-    ✅ Manager → voit uniquement les agents de SA succursale.
-    ✅ Admin   → voit TOUS les agents de toutes les succursales.
-    ❌ Agent   → 403 Forbidden.
+    Manager → agents de SA company uniquement.
+    Admin   → tous les agents.
     """
     permission_classes = [IsAuthenticated, IsAdminOrManager]
 
     def get(self, request):
         if request.user.is_admin:
-            # L'admin voit tous les agents de toutes les succursales
-            agents = User.objects.filter(
-                role=User.Role.AGENT,
-            ).order_by("-created_at")
+            agents = User.objects.filter(role=User.Role.AGENT).order_by("-created_at")
         else:
-            # Le manager voit uniquement les agents de sa succursale
+            # Manager voit les agents de sa propre Company
             agents = User.objects.filter(
                 role=User.Role.AGENT,
-                branch=request.user.branch,
+                company=request.user.company,
             ).order_by("-created_at")
 
         serializer = UserListSerializer(agents, many=True)
         return Response(
-            {
-                "count": agents.count(),
-                "agents": serializer.data,
-            },
+            {"count": agents.count(), "agents": serializer.data},
             status=status.HTTP_200_OK,
         )
 
@@ -398,79 +470,11 @@ class AllUsersListView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-class AssignBranchView(APIView):
+
+def _send_async(fn, *args, **kwargs):
     """
-    PATCH /api/auth/users/{id}/assign-branch/
-
-    - Admin : assigne une succursale à un manager
-    - Manager : assigne SA succursale à ses agents
+    Lance l'envoi d'email dans un thread séparé pour ne pas bloquer la réponse HTTP.
     """
-    permission_classes = [IsAuthenticated]
+    t = threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True)
+    t.start()
 
-    def patch(self, request, user_id):
-        try:
-            target_user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response(
-                {"error": "Utilisateur introuvable."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # 🔴 CAS 1 — ADMIN → MANAGER
-        if request.user.is_admin:
-            if target_user.role != User.Role.MANAGER:
-                return Response(
-                    {"error": "L'admin peut assigner une succursale uniquement à un manager."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            branch = request.data.get("branch")
-            if not branch:
-                return Response(
-                    {"error": "Le champ 'branch' est requis."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            target_user.branch_id = branch
-            target_user.save(update_fields=["branch"])
-
-            return Response(
-                {
-                    "message": "Succursale assignée au manager avec succès.",
-                    "manager_id": str(target_user.id),
-                    "branch": branch,
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        # 🔵 CAS 2 — MANAGER → AGENT
-        if request.user.is_manager:
-            if target_user.role != User.Role.AGENT:
-                return Response(
-                    {"error": "Un manager ne peut assigner une succursale qu'à ses agents."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            if target_user.branch and target_user.branch != request.user.branch:
-                return Response(
-                    {"error": "Cet agent appartient déjà à une autre succursale."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            target_user.branch = request.user.branch
-            target_user.save(update_fields=["branch"])
-
-            return Response(
-                {
-                    "message": "Agent assigné à votre succursale avec succès.",
-                    "agent_id": str(target_user.id),
-                    "branch": str(request.user.branch.id),
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        # ❌ AUTRES CAS
-        return Response(
-            {"error": "Action non autorisée."},
-            status=status.HTTP_403_FORBIDDEN,
-        )

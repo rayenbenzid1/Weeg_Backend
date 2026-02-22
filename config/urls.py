@@ -16,6 +16,8 @@ urlpatterns = [
     path("api/auth/", include("apps.token_security.urls", namespace="token_security")),
     path("api/users/", include("apps.authentication.urls", namespace="authentication")),
     path("api/branches/", include("apps.branches.urls", namespace="branches")),
+    path("api/companies/", include("apps.companies.urls", namespace="companies")),
+
 ]
 
 if settings.DEBUG:

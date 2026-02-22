@@ -8,66 +8,49 @@ from .models import User
 class UserAdmin(BaseUserAdmin):
     """
     Interface d'administration personnalisée pour le modèle User custom.
-    Étend UserAdmin pour prendre en compte les champs spécifiques au projet FASI.
+    Note : La gestion des branches se fait uniquement via l'interface métier,
+    pas via l'admin Django (conformément aux specs FASI).
     """
 
-    # Colonnes affichées dans la liste
     list_display = [
         "email",
         "full_name",
         "role_display",
         "status_display",
-        "branch",
+        "company",
         "is_verified",
         "created_at",
     ]
 
-    # Filtres latéraux
     list_filter = [
         "role",
         "status",
         "is_verified",
         "must_change_password",
-        "branch",
+        "company",
         "created_at",
     ]
 
-    # Champs de recherche
     search_fields = ["email", "first_name", "last_name", "phone_number"]
-
-    # Tri par défaut
     ordering = ["-created_at"]
-
-    # Champs en lecture seule
     readonly_fields = ["id", "created_at", "updated_at", "token_version", "created_by"]
 
-    # Organisation des champs dans le formulaire de détail
     fieldsets = (
         (
             "Identité",
-            {
-                "fields": ("id", "email", "first_name", "last_name", "phone_number")
-            },
+            {"fields": ("id", "email", "first_name", "last_name", "phone_number")},
         ),
         (
             "Rôle et accès",
-            {
-                "fields": ("role", "status", "branch", "is_verified", "rejection_reason")
-            },
+            {"fields": ("role", "status", "company", "is_verified", "rejection_reason")},
         ),
         (
             "Permissions granulaires",
-            {
-                "fields": ("permissions_list",),
-                "classes": ("collapse",),
-            },
+            {"fields": ("permissions_list",), "classes": ("collapse",)},
         ),
         (
             "Sécurité",
-            {
-                "fields": ("password", "token_version", "must_change_password"),
-                "classes": ("collapse",),
-            },
+            {"fields": ("password", "token_version", "must_change_password"), "classes": ("collapse",)},
         ),
         (
             "Permissions Django (système)",
@@ -78,14 +61,10 @@ class UserAdmin(BaseUserAdmin):
         ),
         (
             "Métadonnées",
-            {
-                "fields": ("created_by", "created_at", "updated_at"),
-                "classes": ("collapse",),
-            },
+            {"fields": ("created_by", "created_at", "updated_at"), "classes": ("collapse",)},
         ),
     )
 
-    # Champs affichés lors de la création d'un utilisateur dans l'admin
     add_fieldsets = (
         (
             None,
@@ -97,7 +76,7 @@ class UserAdmin(BaseUserAdmin):
                     "last_name",
                     "role",
                     "status",
-                    "branch",
+                    "company",
                     "password1",
                     "password2",
                 ),
@@ -105,10 +84,8 @@ class UserAdmin(BaseUserAdmin):
         ),
     )
 
-    # Champ utilisé à la place du username
     USERNAME_FIELD = "email"
 
-    # Colonnes calculées avec mise en forme
     def full_name(self, obj):
         return obj.full_name
     full_name.short_description = "Nom complet"

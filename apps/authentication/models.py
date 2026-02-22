@@ -45,6 +45,11 @@ class User(AbstractUser):
         PENDING  → REJECTED  (admin rejette)
         APPROVED → ACTIVE    (après premier login)
         ACTIVE   → SUSPENDED (admin ou manager suspend)
+
+    Relation Company :
+        - Admin  : company = NULL
+        - Manager: company = obligatoire (renseigné à l'inscription)
+        - Agent  : company = celle du manager qui l'a créé (automatique)
     """
 
     # -------------------------------------------------------------------------
@@ -139,7 +144,21 @@ class User(AbstractUser):
     )
 
     # -------------------------------------------------------------------------
-    # Succursale assignée
+    # Société (Company)
+    # -------------------------------------------------------------------------
+
+    company = models.ForeignKey(
+        "companies.Company",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="users",
+        verbose_name="Société",
+        help_text="Société à laquelle appartient l'utilisateur. Null pour les admins.",
+    )
+
+    # -------------------------------------------------------------------------
+    # Succursale assignée (conservée — ne pas supprimer)
     # -------------------------------------------------------------------------
 
     branch = models.ForeignKey(
@@ -236,6 +255,11 @@ class User(AbstractUser):
         return f"{self.first_name} {self.last_name}".strip()
 
     @property
+    def company_name(self) -> str | None:
+        """Retourne le nom de la société ou None."""
+        return self.company.name if self.company else None
+
+    @property
     def is_admin(self) -> bool:
         return self.role == self.Role.ADMIN
 
@@ -260,56 +284,35 @@ class User(AbstractUser):
         """
         Incrémente la version du token pour invalider tous les tokens existants.
         Appelée lors d'un changement ou reset de mot de passe.
-        Sauvegarde uniquement le champ token_version pour performance.
         """
         self.token_version += 1
         self.save(update_fields=["token_version", "updated_at"])
 
     def approve(self) -> None:
-        """
-        Approuve le compte d'un manager.
-        Appelée par l'admin après vérification de l'email.
-        """
+        """Approuve le compte d'un manager."""
         self.status = self.AccountStatus.APPROVED
         self.is_verified = True
         self.save(update_fields=["status", "is_verified", "updated_at"])
 
     def reject(self, reason: str = "") -> None:
-        """
-        Rejette la demande d'accès d'un manager.
-        Appelée par l'admin.
-        """
+        """Rejette la demande d'accès d'un manager."""
         self.status = self.AccountStatus.REJECTED
         self.rejection_reason = reason
         self.save(update_fields=["status", "rejection_reason", "updated_at"])
 
     def suspend(self, reason: str = "") -> None:
-        """
-        Suspend un compte utilisateur.
-        Peut être appelée par l'admin (sur n'importe quel compte)
-        ou par un manager (sur les agents de sa succursale uniquement).
-        """
+        """Suspend un compte utilisateur."""
         self.status = self.AccountStatus.SUSPENDED
         self.rejection_reason = reason
         self.save(update_fields=["status", "rejection_reason", "updated_at"])
 
     def activate(self) -> None:
-        """
-        Active un compte après le premier login réussi.
-        Ou réactive un compte suspendu par l'admin.
-        """
+        """Active un compte après le premier login réussi ou réactive un suspendu."""
         self.status = self.AccountStatus.ACTIVE
         self.save(update_fields=["status", "updated_at"])
 
     def has_custom_permission(self, permission: str) -> bool:
         """
-        Vérifie si l'utilisateur possède une permission spécifique
-        dans sa liste de permissions granulaires.
-
-        Args:
-            permission : nom de la permission (ex: 'export-reports')
-
-        Returns:
-            True si la permission est accordée.
+        Vérifie si l'utilisateur possède une permission spécifique.
         """
         return permission in (self.permissions_list or [])
