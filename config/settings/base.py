@@ -50,6 +50,7 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     "apps.branches",           # ← branches AVANT authentication (FK)
+    "apps.companies",
     "apps.authentication",
     "apps.token_security",
     "apps.products",
@@ -205,13 +206,18 @@ CORS_ALLOW_CREDENTIALS = True
 # CACHE (Redis)
 # =============================================================================
 
+# CACHES = {
+#     "default": {
+#         "BACKEND": "django.core.cache.backends.redis.RedisCache",
+#         "LOCATION": env("REDIS_URL", default="redis://localhost:6379/0"),
+#     }
+# }
+
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": env("REDIS_URL", default="redis://localhost:6379/0"),
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
 }
-
 # =============================================================================
 # CELERY
 # =============================================================================
@@ -232,12 +238,13 @@ EMAIL_BACKEND = env(
     default="django.core.mail.backends.console.EmailBackend",
 )
 EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
-EMAIL_PORT = env.int("EMAIL_PORT", default=587)
-EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_PORT = env.int("EMAIL_PORT", default=465)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=False)
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=True)
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
-DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@fasi.com")
-
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=" weeg@digitalia.ly")
+EMAIL_TIMEOUT = 10
 # URL du frontend (utilisé dans les liens des emails)
 FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:5173")
 
@@ -276,6 +283,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # =============================================================================
 # LOGS
 # =============================================================================
+# =============================================================================
+# LOGS
+# =============================================================================
 
 LOGGING = {
     "version": 1,
@@ -286,10 +296,6 @@ LOGGING = {
             "style": "{",
             "datefmt": "%Y-%m-%d %H:%M:%S",
         },
-        "simple": {
-            "format": "{levelname} {message}",
-            "style": "{",
-        },
     },
     "handlers": {
         "console": {
@@ -299,16 +305,20 @@ LOGGING = {
         "django_file": {
             "class": "logging.handlers.RotatingFileHandler",
             "filename": BASE_DIR / "logs" / "django.log",
-            "maxBytes": 10 * 1024 * 1024,  # 10 MB
+            "maxBytes": 10 * 1024 * 1024,
             "backupCount": 5,
             "formatter": "verbose",
+            "encoding": "utf-8",
+            "delay": True,          # ← n'ouvre le fichier qu'à la première écriture
         },
         "security_file": {
             "class": "logging.handlers.RotatingFileHandler",
             "filename": BASE_DIR / "logs" / "security.log",
-            "maxBytes": 10 * 1024 * 1024,  # 10 MB
+            "maxBytes": 10 * 1024 * 1024,
             "backupCount": 10,
             "formatter": "verbose",
+            "encoding": "utf-8",
+            "delay": True,
         },
         "celery_file": {
             "class": "logging.handlers.RotatingFileHandler",
@@ -316,6 +326,8 @@ LOGGING = {
             "maxBytes": 10 * 1024 * 1024,
             "backupCount": 5,
             "formatter": "verbose",
+            "encoding": "utf-8",
+            "delay": True,
         },
     },
     "loggers": {
@@ -336,7 +348,6 @@ LOGGING = {
         },
     },
 }
-
 # =============================================================================
 # SWAGGER / OpenAPI (drf-spectacular)
 # =============================================================================

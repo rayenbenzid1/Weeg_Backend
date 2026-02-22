@@ -2,3 +2,13 @@
 [2026-02-20 20:04:02] WARNING security Toutes les sessions r�voqu�es pour [karoui.souha18@gmail.com] (1 sessions). Raison : password_changed.
 [2026-02-20 22:07:01] WARNING security Acc�s refus� (403) pour [karoui.souha18@gmail.com] sur /api/users/agents/create/ depuis 127.0.0.1.
 [2026-02-20 23:00:04] WARNING security Toutes les sessions r�voqu�es pour [agent@test.com] (0 sessions). Raison : admin_revoked.
+[2026-02-21 23:06:33] WARNING security Toutes les sessions révoquées pour [souha@gmail.com] (1 sessions). Raison : password_changed.
+[2026-02-21 23:18:01] WARNING security Toutes les sessions révoquées pour [souha@gmail.com] (1 sessions). Raison : password_changed.
+[2026-02-22 10:28:01] WARNING security Accès refusé (403) pour [souha@gmail.com] sur /api/users/users/ depuis 127.0.0.1.
+[2026-02-22 10:28:12] WARNING security Accès refusé (403) pour [souha@gmail.com] sur /api/users/users/ depuis 127.0.0.1.
+[2026-02-22 11:01:34] WARNING security Toutes les sessions révoquées pour [manager@gmail.com] (11 sessions). Raison : admin_revoked.
+[2026-02-22 12:00:03] WARNING security Toutes les sessions révoquées pour [souhakaroui2016@gmail.com] (0 sessions). Raison : admin_revoked.
+[2026-02-22 12:02:37] WARNING security Toutes les sessions révoquées pour [souhakaroui2016@gmail.com] (0 sessions). Raison : admin_revoked.
+[2026-02-22 12:09:09] WARNING security Toutes les sessions révoquées pour [manager@gmail.com] (1 sessions). Raison : admin_revoked.
+[2026-02-22 12:11:16] WARNING security Toutes les sessions révoquées pour [souhakaroui2016@gmail.com] (0 sessions). Raison : admin_revoked.
+[2026-02-22 12:28:49] WARNING security Toutes les sessions révoquées pour [souha@gmail.com] (1 sessions). Raison : password_changed.
