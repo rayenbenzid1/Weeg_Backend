@@ -196,6 +196,7 @@ SIMPLE_JWT = {
 CORS_ALLOWED_ORIGINS = env.list(
     "CORS_ALLOWED_ORIGINS",
     default=[
+        "http://localhost:4000",   # vite dev server alternatif
         "http://localhost:5173",   # Vite dev server
         "http://localhost:3000",   # React dev server alternatif
     ],
@@ -353,8 +354,8 @@ LOGGING = {
 # =============================================================================
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "FASI API",
-    "DESCRIPTION": "API Backend — Plateforme SaaS de gestion commerciale FASI",
+    "TITLE": "WEEG API",
+    "DESCRIPTION": "API Backend — Plateforme SaaS de gestion commerciale WEEG",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }

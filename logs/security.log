@@ -30,3 +30,10 @@
 [2026-02-22 21:25:22] WARNING security Tentative de connexion bloquée depuis 127.0.0.1 (trop de tentatives échouées).
 [2026-02-22 21:25:36] WARNING security Tentative de connexion bloquée depuis 127.0.0.1 (trop de tentatives échouées).
 [2026-02-22 21:48:15] WARNING security Toutes les sessions révoquées pour [weeg@digitalia.ly] (14 sessions). Raison : password_changed.
+[2026-02-23 11:41:28] WARNING security Toutes les sessions révoquées pour [rayenbenzid1@gmail.com] (1 sessions). Raison : password_changed.
+[2026-02-23 11:55:12] WARNING security Toutes les sessions révoquées pour [rayenbenzid1@gmail.com] (0 sessions). Raison : password_reset.
+[2026-02-23 11:55:41] WARNING security Toutes les sessions révoquées pour [rayenbenzid1@gmail.com] (1 sessions). Raison : password_changed.
+[2026-02-23 12:03:02] WARNING security Toutes les sessions révoquées pour [ahmedbenzid@gmail.com] (1 sessions). Raison : password_changed.
+[2026-02-23 12:04:57] WARNING security Toutes les sessions révoquées pour [rayenbenzid1@gmail.com] (1 sessions). Raison : password_changed.
+[2026-02-23 17:46:57] WARNING security Toutes les sessions révoquées pour [ahmedbenzid@gmail.com] (1 sessions). Raison : token_reuse.
+[2026-02-23 17:46:57] CRITICAL security ATTAQUE DÉTECTÉE : réutilisation d'un ancien refresh token pour l'utilisateur [ahmedbenzid@gmail.com]. Tous ses tokens ont été révoqués.

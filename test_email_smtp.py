@@ -17,7 +17,7 @@ HOST     = "mail.digitalia.ly"
 PORT     = 465
 USER     = "weeg@digitalia.ly"
 PASSWORD = "pfe2026@fasitunisie"
-TO       = "weeg@digitalia.ly"          # ← change this if you want to test another recipient
+TO       = "weeg@digitalia.ly"
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_smtp():
