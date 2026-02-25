@@ -17,7 +17,18 @@ urlpatterns = [
     path("api/users/", include("apps.authentication.urls", namespace="authentication")),
     path("api/branches/", include("apps.branches.urls", namespace="branches")),
     path("api/companies/", include("apps.companies.urls", namespace="companies")),
-
+    # ── Data Import (Excel upload) ─────────────────────────────────────
+    path("api/import/", include("apps.data_import.urls", namespace="data_import")),
+    # ── Products ──────────────────────────────────────────────────────
+    path("api/products/", include("apps.products.urls", namespace="products")),
+    # ── Customers ─────────────────────────────────────────────────────
+    path("api/customers/", include("apps.customers.urls", namespace="customers")),
+    # ── Inventory ─────────────────────────────────────────────────────
+    path("api/inventory/", include("apps.inventory.urls", namespace="inventory")),
+    # ── Transactions (Material Movements) ─────────────────────────────
+    path("api/transactions/", include("apps.transactions.urls", namespace="transactions")),
+    # ── Aging Receivables ─────────────────────────────────────────────
+    path("api/aging/", include("apps.aging.urls", namespace="aging")),
 ]
 
 if settings.DEBUG:

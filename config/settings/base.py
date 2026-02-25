@@ -289,63 +289,44 @@ AUTH_PASSWORD_VALIDATORS = [
 # =============================================================================
 
 LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "verbose": {
-            "format": "[{asctime}] {levelname} {name} {message}",
-            "style": "{",
-            "datefmt": "%Y-%m-%d %H:%M:%S",
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
         },
     },
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "verbose",
-        },
-        "django_file": {
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": BASE_DIR / "logs" / "django.log",
-            "maxBytes": 10 * 1024 * 1024,
-            "backupCount": 5,
-            "formatter": "verbose",
-            "encoding": "utf-8",
-            "delay": True,          # ← n'ouvre le fichier qu'à la première écriture
-        },
-        "security_file": {
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": BASE_DIR / "logs" / "security.log",
-            "maxBytes": 10 * 1024 * 1024,
-            "backupCount": 10,
-            "formatter": "verbose",
-            "encoding": "utf-8",
-            "delay": True,
-        },
-        "celery_file": {
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": BASE_DIR / "logs" / "celery.log",
-            "maxBytes": 10 * 1024 * 1024,
-            "backupCount": 5,
-            "formatter": "verbose",
-            "encoding": "utf-8",
-            "delay": True,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+            'level': 'WARNING',  # Seulement WARNING et plus
         },
     },
-    "loggers": {
-        "django": {
-            "handlers": ["console", "django_file"],
-            "level": "INFO",
-            "propagate": False,
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',  # Niveau global
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'WARNING',  # Django seulement WARNING+
+            'propagate': False,
         },
-        "security": {
-            "handlers": ["console", "security_file"],
-            "level": "WARNING",
-            "propagate": False,
+        'django.utils.autoreload': {
+            'handlers': ['console'],
+            'level': 'ERROR',  # Autoreload seulement ERROR+
+            'propagate': False,
         },
-        "celery": {
-            "handlers": ["console", "celery_file"],
-            "level": "INFO",
-            "propagate": False,
+        'django.server': {
+            'handlers': ['console'],
+            'level': 'INFO',  # Garder les infos du serveur (démarrage, requêtes)
+            'propagate': False,
         },
     },
 }
