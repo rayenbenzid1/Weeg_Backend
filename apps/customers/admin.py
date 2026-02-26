@@ -5,21 +5,24 @@ from .models import Customer
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
     list_display = [
-        "customer_name", "account_code", "company",
-        "phone", "email", "area_code", "created_at",
+        "name", "account_code", "company",
+        "phone", "email", "area_code", "is_active", "created_at",
     ]
-    list_filter = ["company"]
-    search_fields = ["customer_name", "account_code", "phone", "email"]
+    list_filter = ["company", "is_active"]
+    search_fields = ["name", "account_code", "phone", "email"]
     readonly_fields = ["id", "created_at", "updated_at"]
-    ordering = ["customer_name"]
+    ordering = ["name"]
     list_per_page = 50
 
     fieldsets = (
         ("Identity", {
-            "fields": ("id", "company", "customer_name", "account_code"),
+            "fields": ("id", "company", "name", "account_code"),
         }),
         ("Contact", {
             "fields": ("address", "area_code", "phone", "email"),
+        }),
+        ("Status", {
+            "fields": ("is_active",),
         }),
         ("Metadata", {
             "fields": ("created_at", "updated_at"),

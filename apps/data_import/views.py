@@ -111,18 +111,26 @@ class ExcelUploadView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
-            # Update log with results
-            has_errors = len(result.get("errors", [])) > 0
-            log.file_type = detected_type
-            log.row_count = result["total"]
-            log.success_count = result["created"] + result.get("updated", 0)
-            log.error_count = result["error_count"] if "error_count" in result else len(result.get("errors", []))
-            log.error_details = result.get("errors", [])[:100]  # Cap at 100 stored errors
+            # ── Update ImportLog with results ──────────────────────────
+            errors_list = result.get("errors", [])
+            has_errors  = len(errors_list) > 0
+
+            log.file_type     = detected_type
+            log.row_count     = result["total"]
+            log.success_count = result.get("created", 0) + result.get("updated", 0)
+            log.error_count   = len(errors_list)
+            log.error_details = errors_list[:100]
+
+            # Persist extra upsert metadata (date_range, deactivated, etc.)
+            log.import_context.update({
+                k: v for k, v in result.items()
+                if k in ("date_range", "deleted_existing", "deleted_stale",
+                         "deactivated", "snapshot_date", "report_date")
+            })
+
             log.status = (
-                ImportLog.ImportStatus.PARTIAL
-                if has_errors and log.success_count > 0
-                else ImportLog.ImportStatus.FAILED
-                if has_errors and log.success_count == 0
+                ImportLog.ImportStatus.PARTIAL  if has_errors and log.success_count > 0
+                else ImportLog.ImportStatus.FAILED   if has_errors and log.success_count == 0
                 else ImportLog.ImportStatus.SUCCESS
             )
             log.completed_at = datetime.now(tz=timezone.utc)
@@ -131,20 +139,27 @@ class ExcelUploadView(APIView):
             logger.info(
                 f"[ExcelUploadView] Import complete: '{file_obj.name}' "
                 f"({detected_type}) for company '{company.name}' "
-                f"— {log.success_count}/{log.row_count} rows, "
-                f"{log.error_count} errors."
+                f"— created={result.get('created', 0)} updated={result.get('updated', 0)} "
+                f"errors={log.error_count}."
             )
 
             return Response(
                 {
-                    "message": self._build_message(log),
+                    "message":    self._build_message(log),
                     "import_log": ImportLogSerializer(log).data,
                     "result": {
-                        "file_type": detected_type,
-                        "total_rows": result["total"],
-                        "created": result["created"],
-                        "updated": result.get("updated", 0),
-                        "errors": result.get("errors", [])[:20],  # Return first 20 errors
+                        "file_type":      detected_type,
+                        "total_rows":     result["total"],
+                        "created":        result.get("created", 0),
+                        "updated":        result.get("updated", 0),
+                        # Type-specific update metadata
+                        "deactivated":    result.get("deactivated"),       # customers
+                        "deleted_stale":  result.get("deleted_stale"),     # aging
+                        "deleted_existing": result.get("deleted_existing"), # movements
+                        "date_range":     result.get("date_range"),        # movements
+                        "snapshot_date":  result.get("snapshot_date"),     # inventory
+                        "report_date":    result.get("report_date"),       # aging
+                        "errors":         errors_list[:20],
                     },
                 },
                 status=status.HTTP_201_CREATED,

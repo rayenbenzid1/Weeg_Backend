@@ -1,0 +1,26 @@
+# Generated manually — adds is_active soft-delete flag to Customer
+
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ("customers", "0001_initial"),
+    ]
+
+    operations = [
+        migrations.AddField(
+            model_name="customer",
+            name="is_active",
+            field=models.BooleanField(
+                default=True,
+                verbose_name="Active",
+                db_index=True,
+                help_text=(
+                    "Set to False when the customer is absent from the latest import "
+                    "instead of deleting — preserves FK integrity with movements/aging."
+                ),
+            ),
+        ),
+    ]

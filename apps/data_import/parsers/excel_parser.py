@@ -10,13 +10,21 @@ Handles 5 file types:
     4. inventory  — جرد_افقي_نهاية_السنة_2025.xlsx
     5. aging      — اعمار__الذمم_2025.xlsx
 
-Auto-detection is done by scanning the first row headers.
+Update strategy per file type:
+    - branches  : update_or_create on (name)                    — idempotent
+    - customers : update_or_create on (company, account_code)   — no destructive DELETE
+                  absent accounts → soft-deactivated (is_active=False)
+    - movements : date-range delete then bulk_create             — preserves history outside range
+    - inventory : update_or_create on (company, product, snapshot_date)
+                  stale products for that date → deleted
+    - aging     : update_or_create on (company, account_code, report_date)
+                  stale accounts for that date → deleted (they've been paid/cleared)
 """
 
 import logging
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 import openpyxl
 from django.db import transaction
@@ -25,34 +33,33 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Detection fingerprints (Arabic header keywords → file type)
+# Detection fingerprints
 # ─────────────────────────────────────────────────────────────────────────────
 
 HEADER_FINGERPRINTS = {
-    "branches": ["الفرع", "العنوان", "رقم الهاتف"],
+    "branches":  ["الفرع", "العنوان", "رقم الهاتف"],
     "customers": ["اسم العميل", "رمز الحساب"],
     "movements": ["رمز  المادة", "حركة.1", "كمية  الادخلات"],
     "inventory": ["رمز المادة", "مخزن المزرعة", "إجمالي كمية"],
-    "aging": ["الحالي", "1-30 يوم", "31-60 يوم", "أكثر من 330 يوم"],
+    "aging":     ["الحالي", "1-30 يوم", "31-60 يوم", "أكثر من 330 يوم"],
 }
 
 FILENAME_HINTS = {
-    "branches": ["فروع", "branch"],
+    "branches":  ["فروع", "branch"],
     "customers": ["العملاء", "customer"],
     "movements": ["حركة", "movement"],
     "inventory": ["جرد", "inventory"],
-    "aging": ["اعمار", "aging", "ذمم"],
+    "aging":     ["اعمار", "aging", "ذمم"],
 }
 
-# Movement type mapping (Arabic → English enum value)
 MOVEMENT_TYPE_MAP = {
-    "ف بيع": "sale",
-    "ف شراء": "purchase",
-    "ف.أول المدة": "opening_balance",
-    "مردودات بيع": "sales_return",
-    "مردود شراء": "purchase_return",
-    "ادخال رئيسي": "main_entry",
-    "اخراج رئيسي": "main_exit",
+    "ف بيع":        "sale",
+    "ف شراء":       "purchase",
+    "ف.أول المدة":  "opening_balance",
+    "مردودات بيع":  "sales_return",
+    "مردود شراء":   "purchase_return",
+    "ادخال رئيسي":  "main_entry",
+    "اخراج رئيسي":  "main_exit",
 }
 
 
@@ -61,7 +68,6 @@ MOVEMENT_TYPE_MAP = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _to_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
-    """Safely convert any value to Decimal."""
     if value is None or value == "":
         return default
     try:
@@ -71,35 +77,29 @@ def _to_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
 
 
 def _to_str(value: Any) -> str:
-    """Safely convert any value to a clean string."""
     if value is None:
         return ""
     return str(value).strip()
 
 
 def _to_date(value: Any) -> Optional[date]:
-    """Convert Excel datetime, date string, or None to a Python date."""
     if value is None:
         return None
-    if isinstance(value, (datetime,)):
+    if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
         return value
-    try:
-        return datetime.strptime(str(value).strip(), "%Y-%m-%d").date()
-    except ValueError:
-        pass
-    try:
-        return datetime.strptime(str(value).strip(), "%d/%m/%Y").date()
-    except ValueError:
-        pass
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(str(value).strip(), fmt).date()
+        except ValueError:
+            continue
     return None
 
 
 def _extract_account_code(account_str: str) -> Optional[str]:
     """
-    Extract the numeric account code from an account string.
-    Example: "1141001 - عملاء قطاعي / نقدي" → "1141001"
+    Extract numeric code from e.g. "1141001 - عملاء قطاعي / نقدي" → "1141001"
     """
     if not account_str:
         return None
@@ -108,38 +108,20 @@ def _extract_account_code(account_str: str) -> Optional[str]:
     return code if code.isdigit() else None
 
 
-def _load_workbook_rows(file_obj) -> Tuple[List[Any], Any]:
-    """Load an Excel file and return (header_row, worksheet)."""
-    wb = openpyxl.load_workbook(file_obj, read_only=True, data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    return rows, wb
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # File type detection
 # ─────────────────────────────────────────────────────────────────────────────
 
 def detect_file_type(filename: str, header_row: tuple) -> Optional[str]:
-    """
-    Auto-detect the Excel file type using filename hints and header content.
-
-    Returns one of: 'branches', 'customers', 'movements', 'inventory', 'aging', or None.
-    """
     filename_lower = filename.lower()
-
-    # Try filename-based detection first (faster)
     for file_type, hints in FILENAME_HINTS.items():
         if any(hint in filename_lower or hint in filename for hint in hints):
             return file_type
 
-    # Fall back to header-based detection
     if not header_row:
         return None
 
-    header_cells = [_to_str(h) for h in header_row if h is not None]
-    header_joined = " ".join(header_cells)
-
+    header_joined = " ".join(_to_str(h) for h in header_row if h is not None)
     for file_type, keywords in HEADER_FINGERPRINTS.items():
         if all(kw in header_joined for kw in keywords):
             return file_type
@@ -148,148 +130,146 @@ def detect_file_type(filename: str, header_row: tuple) -> Optional[str]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Individual parsers
+# Parsers
 # ─────────────────────────────────────────────────────────────────────────────
 
 class BranchesParser:
     """
-    Parses branches Excel file.
-
-    Expected columns (row 1 = header):
-        0: branch_name
-        1: address
-        2: phone
+    Strategy: update_or_create on (name).
+    Never deletes branches — they may have FK relations.
     """
 
     def parse(self, rows: List, company) -> Dict:
         from apps.branches.models import Branch
 
         data_rows = [r for r in rows[1:] if r[0] is not None]
-        created = 0
-        updated = 0
+        created = updated = 0
         errors = []
 
         with transaction.atomic():
             for i, row in enumerate(data_rows, start=2):
                 try:
                     branch_name = _to_str(row[0])
-                    address = _to_str(row[1]) if len(row) > 1 else ""
-                    phone = _to_str(row[2]) if len(row) > 2 else ""
-
                     if not branch_name:
                         continue
-
-                    branch, was_created = Branch.objects.update_or_create(
+                    _, was_created = Branch.objects.update_or_create(
                         name=branch_name,
                         defaults={
-                            "address": address or None,
-                            "phone": phone or None,
+                            "address": _to_str(row[1]) if len(row) > 1 else None or None,
+                            "phone":   _to_str(row[2]) if len(row) > 2 else None or None,
                             "is_active": True,
                         },
                     )
-                    if was_created:
-                        created += 1
-                    else:
-                        updated += 1
-
+                    created += was_created
+                    updated += not was_created
                 except Exception as e:
                     errors.append({"row": i, "error": str(e)})
-                    logger.warning(f"[BranchesParser] Row {i} error: {e}")
+                    logger.warning(f"[BranchesParser] Row {i}: {e}")
 
-        return {
-            "total": len(data_rows),
-            "created": created,
-            "updated": updated,
-            "errors": errors,
-        }
+        return {"total": len(data_rows), "created": created, "updated": updated, "errors": errors}
 
 
 class CustomersParser:
     """
-    Parses customers Excel file (العملاء.xlsx).
+    Strategy: update_or_create on (company, account_code).
 
-    Expected columns:
-        0: customer_name
-        1: account_code
-        2: address
-        3: area_code
-        4: phone
-        5: email
+    - Existing customers → fields updated, is_active reset to True.
+    - New account_codes → created.
+    - Account codes present in DB but ABSENT from file → is_active=False
+      (soft-delete to preserve FK integrity with movements/aging).
+
+    Columns: customer_name | account_code | address | area_code | phone | email
     """
 
     def parse(self, rows: List, company) -> Dict:
         from apps.customers.models import Customer
 
         data_rows = [r for r in rows[1:] if r[0] is not None]
-        created = 0
-        updated = 0
+        created = updated = 0
         errors = []
+        seen_codes: Set[str] = set()
 
         with transaction.atomic():
-            # Wipe existing customers for this company before re-import
-            # (full replace strategy — Excel is the source of truth)
-            Customer.objects.filter(company=company).delete()
-
             for i, row in enumerate(data_rows, start=2):
                 try:
                     customer_name = _to_str(row[0])
-                    account_code = _to_str(row[1]) if len(row) > 1 else ""
-                    address = _to_str(row[2]) if len(row) > 2 else ""
-                    area_code = _to_str(row[3]) if len(row) > 3 else ""
-                    phone = _to_str(row[4]) if len(row) > 4 else ""
-                    email = _to_str(row[5]) if len(row) > 5 else ""
+                    account_code  = _to_str(row[1]) if len(row) > 1 else ""
+                    address       = _to_str(row[2]) if len(row) > 2 else ""
+                    area_code     = _to_str(row[3]) if len(row) > 3 else ""
+                    phone         = _to_str(row[4]) if len(row) > 4 else ""
+                    email         = _to_str(row[5]) if len(row) > 5 else ""
 
                     if not customer_name:
                         continue
                     if not account_code:
                         account_code = f"AUTO-{i}"
 
-                    Customer.objects.create(
+                    _, was_created = Customer.objects.update_or_create(
                         company=company,
-                        customer_name=customer_name,
                         account_code=account_code,
-                        address=address or None,
-                        area_code=area_code or None,
-                        phone=phone or None,
-                        email=email or None,
+                        defaults={
+                            "name": customer_name,
+                            "address":   address   or None,
+                            "area_code": area_code or None,
+                            "phone":     phone     or None,
+                            "email":     email     or None,
+                            "is_active": True,
+                        },
                     )
-                    created += 1
+                    seen_codes.add(account_code)
+                    created += was_created
+                    updated += not was_created
 
                 except Exception as e:
                     errors.append({"row": i, "error": str(e)})
-                    logger.warning(f"[CustomersParser] Row {i} error: {e}")
+                    logger.warning(f"[CustomersParser] Row {i}: {e}")
+
+            # Soft-deactivate customers no longer in the file
+            deactivated = 0
+            if seen_codes:
+                deactivated = Customer.objects.filter(
+                    company=company,
+                    is_active=True,
+                ).exclude(account_code__in=seen_codes).update(is_active=False)
+                if deactivated:
+                    logger.info(
+                        f"[CustomersParser] Soft-deactivated {deactivated} customers "
+                        "absent from import file."
+                    )
 
         return {
             "total": len(data_rows),
             "created": created,
             "updated": updated,
+            "deactivated": deactivated,
             "errors": errors,
         }
 
 
 class MovementsParser:
     """
-    Parses material movements Excel file (حركة__المادة_2025.xlsx).
+    Strategy: date-range delete then bulk_create.
 
-    Expected columns:
-        0:  category (الفهرس)
-        1:  material_code (رمز المادة)
-        2:  lab_code (رمز المعمل)
-        3:  material_name (اسم المادة)
-        4:  date (تاريخ)
-        5:  movement_type_raw (حركة.1)
-        6:  qty_in (كمية الادخلات)
-        7:  price_in (سعر الادخلات)
-        8:  total_in (اجمالي الادخلات)
-        9:  qty_out (كمية الاخراجات)
-        10: price_out (سعر الاخراجات)
-        11: total_out (اجمالي الاخراجات)
-        12: balance_price (سعر الرصيد)
-        13: branch_name (الفرع)
-        14: customer_name (العميل)
+    Because MaterialMovement has no natural unique key (multiple movements of the
+    same type can occur on the same day for the same product), we cannot use
+    update_or_create. Instead:
+
+        1. Scan all rows to determine [min_date, max_date] covered by the file.
+        2. Delete existing movements for this company ONLY within that date range.
+        3. Bulk-insert all new rows.
+
+    This means:
+        - "Jan–Jun 2025" file  → replaces Jan–Jun only, history before/after preserved.
+        - "Jan–Dec 2025" file  → replaces the full year.
+        - Running the same file twice is idempotent.
+
+    Columns: category | material_code | lab_code | material_name | date |
+             movement_type | qty_in | price_in | total_in |
+             qty_out | price_out | total_out | balance_price |
+             branch_name | customer_name
     """
 
-    BATCH_SIZE = 500  # Insert in batches for performance
+    BATCH_SIZE = 500
 
     def parse(self, rows: List, company) -> Dict:
         from apps.transactions.models import MaterialMovement
@@ -299,125 +279,135 @@ class MovementsParser:
 
         data_rows = [r for r in rows[1:] if r[1] is not None]
 
-        # Build lookup caches to avoid N+1 queries
-        product_cache: Dict[str, Optional[Product]] = {}
-        branch_cache: Dict[str, Optional[Branch]] = {}
+        # Pass 1 — collect valid dates to determine range
+        file_dates: List[date] = []
+        parsed: List[tuple] = []  # (row_number, row, movement_date)
+
+        for i, row in enumerate(data_rows, start=2):
+            d = _to_date(row[4]) if len(row) > 4 else None
+            parsed.append((i, row, d))
+            if d is not None:
+                file_dates.append(d)
+
+        if not file_dates:
+            return {
+                "total": 0, "created": 0, "updated": 0,
+                "errors": [{"row": 0, "error": "No valid dates found in file."}],
+            }
+
+        date_from = min(file_dates)
+        date_to   = max(file_dates)
+
+        # Build FK caches (avoids N+1 on every row)
+        product_cache:  Dict[str, Optional[Product]]  = {}
+        branch_cache:   Dict[str, Optional[Branch]]   = {}
         customer_cache: Dict[str, Optional[Customer]] = {}
 
         created = 0
-        errors = []
-        batch = []
+        errors  = []
+        batch:  List[MaterialMovement] = []
 
-        # Clear existing movements for this company
         with transaction.atomic():
-            MaterialMovement.objects.filter(company=company).delete()
+            # Replace only the date range present in the file
+            deleted_count, _ = MaterialMovement.objects.filter(
+                company=company,
+                movement_date__gte=date_from,
+                movement_date__lte=date_to,
+            ).delete()
+            logger.info(
+                f"[MovementsParser] Deleted {deleted_count} movements in range "
+                f"{date_from} → {date_to} for company '{company.name}'."
+            )
 
-        for i, row in enumerate(data_rows, start=2):
-            try:
-                material_code = _to_str(row[1])
-                if not material_code:
-                    continue
+            # Pass 2 — build and insert
+            for i, row, movement_date in parsed:
+                try:
+                    material_code = _to_str(row[1])
+                    if not material_code or movement_date is None:
+                        if movement_date is None and material_code:
+                            errors.append({"row": i, "error": f"Invalid date: {row[4]}"})
+                        continue
 
-                movement_date = _to_date(row[4])
-                if not movement_date:
-                    errors.append({"row": i, "error": f"Invalid date: {row[4]}"})
-                    continue
+                    movement_type_raw = _to_str(row[5]) if len(row) > 5 else ""
+                    movement_type     = MOVEMENT_TYPE_MAP.get(movement_type_raw, "other")
 
-                movement_type_raw = _to_str(row[5]) if len(row) > 5 else ""
-                movement_type = MOVEMENT_TYPE_MAP.get(movement_type_raw, "other")
+                    if material_code not in product_cache:
+                        product_cache[material_code] = Product.objects.filter(
+                            company=company, product_code=material_code
+                        ).first()
 
-                # Resolve product FK (with cache)
-                if material_code not in product_cache:
-                    product_cache[material_code] = Product.objects.filter(
-                        company=company, product_code=material_code
-                    ).first()
-                product = product_cache[material_code]
+                    branch_name = _to_str(row[13]) if len(row) > 13 else ""
+                    if branch_name and branch_name not in branch_cache:
+                        branch_cache[branch_name] = Branch.objects.filter(
+                            name__icontains=branch_name
+                        ).first()
 
-                # Resolve branch FK (with cache)
-                branch_name = _to_str(row[13]) if len(row) > 13 else ""
-                if branch_name and branch_name not in branch_cache:
-                    branch_cache[branch_name] = Branch.objects.filter(
-                        name__icontains=branch_name
-                    ).first()
-                branch = branch_cache.get(branch_name)
+                    customer_name = _to_str(row[14]) if len(row) > 14 else ""
+                    if customer_name and customer_name not in customer_cache:
+                        customer_cache[customer_name] = Customer.objects.filter(
+                            company=company,
+                            name__icontains=customer_name[:50],
+                        ).first()
 
-                # Resolve customer FK (with cache, match on name)
-                customer_name = _to_str(row[14]) if len(row) > 14 else ""
-                if customer_name and customer_name not in customer_cache:
-                    customer_cache[customer_name] = Customer.objects.filter(
+                    batch.append(MaterialMovement(
                         company=company,
-                        customer_name__icontains=customer_name[:50],
-                    ).first()
-                customer = customer_cache.get(customer_name)
+                        product=product_cache.get(material_code),
+                        category=_to_str(row[0]) or None,
+                        material_code=material_code,
+                        lab_code=_to_str(row[2]) or None,
+                        material_name=_to_str(row[3]),
+                        movement_date=movement_date,
+                        movement_type=movement_type,
+                        movement_type_raw=movement_type_raw or None,
+                        qty_in=_to_decimal(row[6])  if len(row) > 6  else None,
+                        price_in=_to_decimal(row[7]) if len(row) > 7  else None,
+                        total_in=_to_decimal(row[8]) if len(row) > 8  else None,
+                        qty_out=_to_decimal(row[9])  if len(row) > 9  else None,
+                        price_out=_to_decimal(row[10]) if len(row) > 10 else None,
+                        total_out=_to_decimal(row[11]) if len(row) > 11 else None,
+                        balance_price=_to_decimal(row[12]) if len(row) > 12 else None,
+                        branch_name=branch_name or None,
+                        branch=branch_cache.get(branch_name),
+                        customer_name=customer_name or None,
+                        customer=customer_cache.get(customer_name),
+                    ))
+                    created += 1
 
-                batch.append(MaterialMovement(
-                    company=company,
-                    product=product,
-                    category=_to_str(row[0]) or None,
-                    material_code=material_code,
-                    lab_code=_to_str(row[2]) or None,
-                    material_name=_to_str(row[3]),
-                    movement_date=movement_date,
-                    movement_type=movement_type,
-                    movement_type_raw=movement_type_raw or None,
-                    qty_in=_to_decimal(row[6]) if len(row) > 6 else None,
-                    price_in=_to_decimal(row[7]) if len(row) > 7 else None,
-                    total_in=_to_decimal(row[8]) if len(row) > 8 else None,
-                    qty_out=_to_decimal(row[9]) if len(row) > 9 else None,
-                    price_out=_to_decimal(row[10]) if len(row) > 10 else None,
-                    total_out=_to_decimal(row[11]) if len(row) > 11 else None,
-                    balance_price=_to_decimal(row[12]) if len(row) > 12 else None,
-                    branch_name=branch_name or None,
-                    branch=branch,
-                    customer_name=customer_name or None,
-                    customer=customer,
-                ))
-                created += 1
+                    if len(batch) >= self.BATCH_SIZE:
+                        MaterialMovement.objects.bulk_create(batch)
+                        batch = []
 
-                # Flush batch
-                if len(batch) >= self.BATCH_SIZE:
-                    MaterialMovement.objects.bulk_create(batch, ignore_conflicts=False)
-                    batch = []
+                except Exception as e:
+                    errors.append({"row": i, "error": str(e)})
+                    logger.warning(f"[MovementsParser] Row {i}: {e}")
 
-            except Exception as e:
-                errors.append({"row": i, "error": str(e)})
-                logger.warning(f"[MovementsParser] Row {i} error: {e}")
-
-        # Final flush
-        if batch:
-            with transaction.atomic():
-                MaterialMovement.objects.bulk_create(batch, ignore_conflicts=False)
+            if batch:
+                MaterialMovement.objects.bulk_create(batch)
 
         return {
-            "total": len(data_rows),
-            "created": created,
-            "updated": 0,
-            "errors": errors,
+            "total":    len(data_rows),
+            "created":  created,
+            "updated":  0,
+            "date_range":       {"from": str(date_from), "to": str(date_to)},
+            "deleted_existing": deleted_count,
+            "errors":   errors,
         }
 
 
 class InventoryParser:
     """
-    Parses horizontal inventory Excel file (جرد_افقي_نهاية_السنة_2025.xlsx).
+    Strategy: update_or_create on (company, product, snapshot_date).
 
-    Expected columns:
-        0:  category (الفهرس)
-        1:  product_code (رمز المادة)
-        2:  product_name (اسم المادة)
-        3:  qty_alkarimia
-        4:  qty_benghazi
-        5:  qty_mazraa
-        6:  value_mazraa
-        7:  qty_dahmani
-        8:  value_dahmani
-        9:  qty_janzour
-        10: value_janzour
-        11: qty_misrata
-        12: value_alkarimia
-        13: value_misrata
-        14: total_qty
-        15: cost_price
-        16: total_value
+    - Each product row in the file is upserted for the given snapshot_date.
+    - Products that existed in the DB for this snapshot_date but are ABSENT
+      from the new file are deleted (e.g. discontinued SKUs).
+    - Other snapshot_dates are untouched.
+
+    Columns: category | product_code | product_name |
+             qty_alkarimia | qty_benghazi | qty_mazraa | value_mazraa |
+             qty_dahmani | value_dahmani | qty_janzour | value_janzour |
+             qty_misrata | value_alkarimia | value_misrata |
+             total_qty | cost_price | total_value
     """
 
     def parse(self, rows: List, company, snapshot_date: date = None) -> Dict:
@@ -428,90 +418,88 @@ class InventoryParser:
             snapshot_date = date.today()
 
         data_rows = [r for r in rows[1:] if r[1] is not None]
-        created = 0
-        updated = 0
+        created = updated = 0
         errors = []
+        seen_product_ids: Set[Any] = set()
 
         with transaction.atomic():
-            # Delete existing snapshot for this date and company
-            InventorySnapshot.objects.filter(
-                company=company,
-                snapshot_date=snapshot_date
-            ).delete()
-
             for i, row in enumerate(data_rows, start=2):
                 try:
                     product_code = _to_str(row[1])
                     product_name = _to_str(row[2])
-                    category = _to_str(row[0]) or None
+                    category     = _to_str(row[0]) or None
 
                     if not product_code:
                         continue
 
-                    # Get or create product
-                    product, prod_created = Product.objects.update_or_create(
+                    product, _ = Product.objects.update_or_create(
                         company=company,
                         product_code=product_code,
-                        defaults={
-                            "product_name": product_name,
-                            "category": category,
-                        },
+                        defaults={"product_name": product_name, "category": category},
                     )
+                    seen_product_ids.add(product.pk)
 
-                    InventorySnapshot.objects.create(
+                    _, was_created = InventorySnapshot.objects.update_or_create(
                         company=company,
                         product=product,
                         snapshot_date=snapshot_date,
-                        qty_alkarimia=_to_decimal(row[3]) if len(row) > 3 else Decimal("0"),
-                        qty_benghazi=_to_decimal(row[4]) if len(row) > 4 else Decimal("0"),
-                        qty_mazraa=_to_decimal(row[5]) if len(row) > 5 else Decimal("0"),
-                        value_mazraa=_to_decimal(row[6]) if len(row) > 6 else Decimal("0"),
-                        qty_dahmani=_to_decimal(row[7]) if len(row) > 7 else Decimal("0"),
-                        value_dahmani=_to_decimal(row[8]) if len(row) > 8 else Decimal("0"),
-                        qty_janzour=_to_decimal(row[9]) if len(row) > 9 else Decimal("0"),
-                        value_janzour=_to_decimal(row[10]) if len(row) > 10 else Decimal("0"),
-                        qty_misrata=_to_decimal(row[11]) if len(row) > 11 else Decimal("0"),
-                        value_alkarimia=_to_decimal(row[12]) if len(row) > 12 else Decimal("0"),
-                        value_misrata=_to_decimal(row[13]) if len(row) > 13 else Decimal("0"),
-                        total_qty=_to_decimal(row[14]) if len(row) > 14 else Decimal("0"),
-                        cost_price=_to_decimal(row[15]) if len(row) > 15 else Decimal("0"),
-                        total_value=_to_decimal(row[16]) if len(row) > 16 else Decimal("0"),
+                        defaults={
+                            "qty_alkarimia":   _to_decimal(row[3])  if len(row) > 3  else Decimal("0"),
+                            "qty_benghazi":    _to_decimal(row[4])  if len(row) > 4  else Decimal("0"),
+                            "qty_mazraa":      _to_decimal(row[5])  if len(row) > 5  else Decimal("0"),
+                            "value_mazraa":    _to_decimal(row[6])  if len(row) > 6  else Decimal("0"),
+                            "qty_dahmani":     _to_decimal(row[7])  if len(row) > 7  else Decimal("0"),
+                            "value_dahmani":   _to_decimal(row[8])  if len(row) > 8  else Decimal("0"),
+                            "qty_janzour":     _to_decimal(row[9])  if len(row) > 9  else Decimal("0"),
+                            "value_janzour":   _to_decimal(row[10]) if len(row) > 10 else Decimal("0"),
+                            "qty_misrata":     _to_decimal(row[11]) if len(row) > 11 else Decimal("0"),
+                            "value_alkarimia": _to_decimal(row[12]) if len(row) > 12 else Decimal("0"),
+                            "value_misrata":   _to_decimal(row[13]) if len(row) > 13 else Decimal("0"),
+                            "total_qty":       _to_decimal(row[14]) if len(row) > 14 else Decimal("0"),
+                            "cost_price":      _to_decimal(row[15]) if len(row) > 15 else Decimal("0"),
+                            "total_value":     _to_decimal(row[16]) if len(row) > 16 else Decimal("0"),
+                        },
                     )
-                    created += 1
+                    created += was_created
+                    updated += not was_created
 
                 except Exception as e:
                     errors.append({"row": i, "error": str(e)})
-                    logger.warning(f"[InventoryParser] Row {i} error: {e}")
+                    logger.warning(f"[InventoryParser] Row {i}: {e}")
+
+            # Clean up discontinued SKUs for this snapshot date
+            if seen_product_ids:
+                stale, _ = InventorySnapshot.objects.filter(
+                    company=company,
+                    snapshot_date=snapshot_date,
+                ).exclude(product_id__in=seen_product_ids).delete()
+                if stale:
+                    logger.info(
+                        f"[InventoryParser] Removed {stale} discontinued SKUs "
+                        f"from snapshot {snapshot_date}."
+                    )
 
         return {
-            "total": len(data_rows),
-            "created": created,
-            "updated": updated,
-            "errors": errors,
+            "total":         len(data_rows),
+            "created":       created,
+            "updated":       updated,
+            "snapshot_date": str(snapshot_date),
+            "errors":        errors,
         }
 
 
 class AgingParser:
     """
-    Parses aging receivables Excel file (اعمار__الذمم_2025.xlsx).
+    Strategy: update_or_create on (company, account_code, report_date).
 
-    Expected columns:
-        0:  row_number (#)
-        1:  account (الحساب)
-        2:  current (الحالي)
-        3:  d1_30 (1-30 يوم)
-        4:  d31_60 (31-60 يوم)
-        5:  d61_90 (61-90 يوم)
-        6:  d91_120 (91-120 يوم)
-        7:  d121_150 (121-150 يوم)
-        8:  d151_180 (151-180 يوم)
-        9:  d181_210 (181-210 يوم)
-        10: d211_240 (211-240 يوم)
-        11: d241_270 (241-270 يوم)
-        12: d271_300 (271-300 يوم)
-        13: d301_330 (301-330 يوم)
-        14: over_330 (أكثر من 330 يوم)
-        15: total (المجموع) — may be an Excel formula string, ignored
+    - Existing records for the same account × date are updated in place.
+    - Accounts present in the DB for this report_date but ABSENT from the new
+      file are deleted (they've been paid / cleared in the accounting system).
+    - Other report_dates are untouched.
+
+    Columns: # | account | current | 1-30d | 31-60d | 61-90d | 91-120d |
+             121-150d | 151-180d | 181-210d | 211-240d | 241-270d |
+             271-300d | 301-330d | >330d | total (formula, ignored)
     """
 
     def parse(self, rows: List, company, report_date: date = None) -> Dict:
@@ -522,93 +510,84 @@ class AgingParser:
             report_date = date.today()
 
         data_rows = [r for r in rows[1:] if r[1] is not None]
-        created = 0
+        created = updated = deleted_stale = 0
         errors = []
+        seen_codes: Set[str] = set()
 
-        # Build customer lookup by account_code for FK resolution
         customer_map = {
             c.account_code: c
             for c in Customer.objects.filter(company=company)
         }
 
         with transaction.atomic():
-            AgingReceivable.objects.filter(
-                company=company,
-                report_date=report_date,
-            ).delete()
-
             for i, row in enumerate(data_rows, start=2):
                 try:
                     account = _to_str(row[1])
                     if not account:
                         continue
-
-                    # Skip summary/total rows
                     if any(kw in account for kw in ["الإجمالي", "المجموع", "Total"]):
                         continue
 
-                    account_code = _extract_account_code(account)
-                    customer = customer_map.get(account_code) if account_code else None
+                    account_code = _extract_account_code(account) or f"RAW-{account[:30]}"
+                    customer     = customer_map.get(account_code)
 
-                    def safe_decimal(idx):
+                    def sd(idx: int) -> Decimal:
                         val = row[idx] if len(row) > idx else None
-                        # Skip formula strings
                         if isinstance(val, str) and val.startswith("="):
                             return Decimal("0")
                         return _to_decimal(val)
 
-                    current = safe_decimal(2)
-                    d1_30 = safe_decimal(3)
-                    d31_60 = safe_decimal(4)
-                    d61_90 = safe_decimal(5)
-                    d91_120 = safe_decimal(6)
-                    d121_150 = safe_decimal(7)
-                    d151_180 = safe_decimal(8)
-                    d181_210 = safe_decimal(9)
-                    d211_240 = safe_decimal(10)
-                    d241_270 = safe_decimal(11)
-                    d271_300 = safe_decimal(12)
-                    d301_330 = safe_decimal(13)
-                    over_330 = safe_decimal(14)
+                    buckets = {
+                        "current":   sd(2),
+                        "d1_30":     sd(3),
+                        "d31_60":    sd(4),
+                        "d61_90":    sd(5),
+                        "d91_120":   sd(6),
+                        "d121_150":  sd(7),
+                        "d151_180":  sd(8),
+                        "d181_210":  sd(9),
+                        "d211_240":  sd(10),
+                        "d241_270":  sd(11),
+                        "d271_300":  sd(12),
+                        "d301_330":  sd(13),
+                        "over_330":  sd(14),
+                    }
+                    total = sum(buckets.values())
 
-                    total = (
-                        current + d1_30 + d31_60 + d61_90 + d91_120 +
-                        d121_150 + d151_180 + d181_210 + d211_240 +
-                        d241_270 + d271_300 + d301_330 + over_330
-                    )
-
-                    AgingReceivable.objects.create(
+                    _, was_created = AgingReceivable.objects.update_or_create(
                         company=company,
-                        customer=customer,
-                        account=account,
                         account_code=account_code,
                         report_date=report_date,
-                        current=current,
-                        d1_30=d1_30,
-                        d31_60=d31_60,
-                        d61_90=d61_90,
-                        d91_120=d91_120,
-                        d121_150=d121_150,
-                        d151_180=d151_180,
-                        d181_210=d181_210,
-                        d211_240=d211_240,
-                        d241_270=d241_270,
-                        d271_300=d271_300,
-                        d301_330=d301_330,
-                        over_330=over_330,
-                        total=total,
+                        defaults={"customer": customer, "account": account, "total": total, **buckets},
                     )
-                    created += 1
+                    seen_codes.add(account_code)
+                    created += was_created
+                    updated += not was_created
 
                 except Exception as e:
                     errors.append({"row": i, "error": str(e)})
-                    logger.warning(f"[AgingParser] Row {i} error: {e}")
+                    logger.warning(f"[AgingParser] Row {i}: {e}")
+
+            # Remove accounts that were paid/cleared (absent from new report)
+            if seen_codes:
+                result = AgingReceivable.objects.filter(
+                    company=company,
+                    report_date=report_date,
+                ).exclude(account_code__in=seen_codes).delete()
+                deleted_stale = result[0]
+                if deleted_stale:
+                    logger.info(
+                        f"[AgingParser] Removed {deleted_stale} cleared accounts "
+                        f"from report {report_date}."
+                    )
 
         return {
-            "total": len(data_rows),
-            "created": created,
-            "updated": 0,
-            "errors": errors,
+            "total":          len(data_rows),
+            "created":        created,
+            "updated":        updated,
+            "deleted_stale":  deleted_stale,
+            "report_date":    str(report_date),
+            "errors":         errors,
         }
 
 
@@ -617,20 +596,19 @@ class AgingParser:
 # ─────────────────────────────────────────────────────────────────────────────
 
 PARSERS = {
-    "branches": BranchesParser,
+    "branches":  BranchesParser,
     "customers": CustomersParser,
     "movements": MovementsParser,
     "inventory": InventoryParser,
-    "aging": AgingParser,
+    "aging":     AgingParser,
 }
 
 
 def get_parser(file_type: str):
-    """Return the parser class for a given file type."""
-    parser_class = PARSERS.get(file_type)
-    if not parser_class:
+    cls = PARSERS.get(file_type)
+    if not cls:
         raise ValueError(f"No parser registered for file type: '{file_type}'")
-    return parser_class()
+    return cls()
 
 
 def parse_excel_file(
@@ -643,23 +621,13 @@ def parse_excel_file(
     """
     Main entry point: parse an Excel file and persist data to the database.
 
-    Args:
-        file_obj      : file-like object (Django InMemoryUploadedFile)
-        filename      : original filename (used for type detection)
-        company       : Company instance
-        file_type     : optional override; auto-detected if None
-        extra_context : extra parameters passed to the parser
-                        (e.g. snapshot_date, report_date)
-
-    Returns:
-        dict with keys: file_type, total, created, updated, errors
+    Returns a dict with: file_type, total, created, updated, errors, ...
     """
     extra_context = extra_context or {}
 
-    # Load workbook
     try:
-        wb = openpyxl.load_workbook(file_obj, read_only=True, data_only=True)
-        ws = wb.active
+        wb   = openpyxl.load_workbook(file_obj, read_only=True, data_only=True)
+        ws   = wb.active
         rows = list(ws.iter_rows(values_only=True))
         wb.close()
     except Exception as e:
@@ -668,26 +636,22 @@ def parse_excel_file(
     if not rows:
         raise ValueError("The uploaded file is empty.")
 
-    header_row = rows[0]
-
-    # Auto-detect file type
     if not file_type:
-        file_type = detect_file_type(filename, header_row)
+        file_type = detect_file_type(filename, rows[0])
         if not file_type:
             raise ValueError(
                 f"Cannot determine file type for '{filename}'. "
-                "Please rename the file to include one of the expected keywords "
-                "(فروع, العملاء, حركة, جرد, اعمار) or specify the type manually."
+                "Rename the file to include one of: فروع, العملاء, حركة, جرد, اعمار — "
+                "or pass file_type explicitly."
             )
 
     logger.info(
-        f"[parse_excel_file] Parsing '{filename}' as '{file_type}' "
-        f"for company '{company.name}' — {len(rows) - 1} data rows."
+        f"[parse_excel_file] '{filename}' → type='{file_type}' "
+        f"for '{company.name}' — {len(rows) - 1} data rows."
     )
 
     parser = get_parser(file_type)
 
-    # Call parser with context-appropriate signature
     if file_type == "inventory":
         result = parser.parse(rows, company, snapshot_date=extra_context.get("snapshot_date"))
     elif file_type == "aging":
