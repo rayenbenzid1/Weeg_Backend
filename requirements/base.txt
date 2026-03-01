@@ -4,7 +4,7 @@ djangorestframework-simplejwt==5.3.1    # JWT Auth
 django-cors-headers==4.3.1              # CORS pour React
 psycopg2-binary==2.9.9                  # Driver PostgreSQL
 django-filter==24.2                     # Filtres avancés
-Pillow==10.3.0                          # Images
+Pillow>=10.4.0                          # Images
 openpyxl==3.1.2                         # Import/Export Excel
 celery==5.3.6                           # Tâches async
 redis==5.0.3                            # Broker Celery

@@ -248,7 +248,7 @@ class AgingDistributionView(APIView):
             {
                 "bucket":        field,
                 "label":         label,
-                "amount":        float(totals[field] or 0),
+                "total":        float(totals[field] or 0),
                 "percentage":    round(
                     float(totals[field] or 0) / grand_total * 100, 2
                 ) if grand_total else 0,
