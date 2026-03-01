@@ -29,6 +29,8 @@ urlpatterns = [
     path("api/transactions/", include("apps.transactions.urls", namespace="transactions")),
     # ── Aging Receivables ─────────────────────────────────────────────
     path("api/aging/", include("apps.aging.urls", namespace="aging")),
+    path("api/kpi/", include("apps.kpi.urls")),  # ADD THIS LINE
+
 ]
 
 if settings.DEBUG:

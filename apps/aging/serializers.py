@@ -1,70 +1,124 @@
+"""
+apps/aging/serializers.py
+-------------------------
+Serializers for the AgingReceivable model.
+
+Field names match exactly what the frontend TypeScript AgingRow interface expects.
+The AgingListView returns { records: [...] } and the dataHooks.ts useAgingReport
+hook maps that key to { results: [...] } automatically.
+"""
 from rest_framework import serializers
 from .models import AgingReceivable
 
 
+# ── Full record (detail view) ─────────────────────────────────────────────────
+
 class AgingReceivableSerializer(serializers.ModelSerializer):
-    """Full serializer including all aging buckets and computed properties."""
+    """
+    Full serializer: all buckets + computed risk_score / overdue_total.
+    Used by AgingDetailView → GET /api/aging/<id>/
+    """
 
-    risk_score = serializers.SerializerMethodField()
+    risk_score    = serializers.SerializerMethodField()
     overdue_total = serializers.SerializerMethodField()
-
     customer_name = serializers.CharField(
         source="customer.customer_name",
         read_only=True,
         allow_null=True,
+        default=None,
     )
 
     class Meta:
-        model = AgingReceivable
+        model  = AgingReceivable
         fields = [
             "id", "report_date",
             "customer", "customer_name",
             "account", "account_code",
-            # Buckets
-            "current", "d1_30", "d31_60", "d61_90", "d91_120",
+            # 13 aging buckets
+            "current",
+            "d1_30", "d31_60", "d61_90", "d91_120",
             "d121_150", "d151_180", "d181_210", "d211_240",
             "d241_270", "d271_300", "d301_330", "over_330",
             # Computed
             "total", "overdue_total", "risk_score",
+            # Timestamps
             "created_at", "updated_at",
         ]
         read_only_fields = fields
 
-    def get_risk_score(self, obj):
-        return obj.risk_score
+    def get_risk_score(self, obj) -> str:
+        return obj.risk_score        # @property on AgingReceivable model
 
-    def get_overdue_total(self, obj):
-        return float(obj.overdue_total)
+    def get_overdue_total(self, obj) -> float:
+        return float(obj.overdue_total)  # @property on AgingReceivable model
 
+
+# ── List / report view ────────────────────────────────────────────────────────
 
 class AgingListSerializer(serializers.ModelSerializer):
-    """Lightweight serializer for list views."""
+    """
+    Serializer for paginated list, KPI credit, and risk views.
+    Used by:
+      - AgingListView      → GET /api/aging/
+      - AgingRiskView      → GET /api/aging/risk/
+      - CreditKPIView      → GET /api/kpi/credit/
 
-    risk_score = serializers.SerializerMethodField()
+    Returns ALL 13 bucket columns so that:
+      - AgingReceivablePage renders the full bucket table
+      - CreditKPISection renders the per-customer mini histogram
+    """
+
+    risk_score    = serializers.SerializerMethodField()
+    overdue_total = serializers.SerializerMethodField()
     customer_name = serializers.CharField(
         source="customer.customer_name",
         read_only=True,
         allow_null=True,
+        default=None,
     )
 
     class Meta:
-        model = AgingReceivable
+        model  = AgingReceivable
         fields = [
             "id", "report_date",
             "account_code", "account", "customer_name",
-            "current", "d1_30", "d31_60",
-            "total", "risk_score",
+            # All 13 buckets
+            "current",
+            "d1_30", "d31_60", "d61_90", "d91_120",
+            "d121_150", "d151_180", "d181_210", "d211_240",
+            "d241_270", "d271_300", "d301_330", "over_330",
+            # Computed
+            "total", "overdue_total", "risk_score",
         ]
         read_only_fields = fields
 
-    def get_risk_score(self, obj):
+    def get_risk_score(self, obj) -> str:
         return obj.risk_score
 
+    def get_overdue_total(self, obj) -> float:
+        return float(obj.overdue_total)
+
+
+# ── Distribution aggregation ──────────────────────────────────────────────────
 
 class AgingDistributionSerializer(serializers.Serializer):
-    """Serializer for bucket distribution aggregation."""
-
-    bucket = serializers.CharField()
-    label = serializers.CharField()
-    total = serializers.DecimalField(max_digits=18, decimal_places=2)
+    """
+    One row of the bucket distribution response.
+    GET /api/aging/distribution/
+    → { bucket: "d61_90", label: "61–90 days", total: 45230.50, percentage: 12.3 }
+    """
+    bucket     = serializers.CharField()
+    label      = serializers.CharField()
+    total      = serializers.FloatField()
     percentage = serializers.FloatField()
+
+
+# ── Dates list ────────────────────────────────────────────────────────────────
+
+class AgingDatesSerializer(serializers.Serializer):
+    """
+    Available report dates for the date-picker.
+    GET /api/aging/dates/
+    → { dates: ["2025-12-31", "2024-12-31"] }
+    """
+    dates = serializers.ListField(child=serializers.DateField())
