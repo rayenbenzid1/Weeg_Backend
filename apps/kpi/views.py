@@ -105,25 +105,33 @@ class CreditKPIView(APIView):
         # = (CA à crédit / CA total) × 100
         # CA total = SUM(total_out) for all sales
         # CA à crédit = SUM(total_out) for sales to named, non-cash customers
+        SALE_LABELS = ["ف بيع"]
+
         sales_qs = MaterialMovement.objects.filter(
             company=company,
-            movement_type="sale",
+            movement_type__in=SALE_LABELS,
+        )
+
+        SALE_LABELS = ["ف بيع"]
+        CASH_KEYWORDS_FILTER = Q(customer_name__icontains="نقدي") | Q(customer_name__icontains="قطاعي")
+
+        sales_qs = MaterialMovement.objects.filter(
+            company=company,
+            movement_type__in=SALE_LABELS,
         )
 
         ca_total_agg = sales_qs.aggregate(ca=Coalesce(Sum("total_out"), Decimal("0")))
         ca_total = float(ca_total_agg["ca"])
 
-        # Credit sales = sales where customer_name is not null and not cash keyword
-        cash_filter = Q(customer_name__icontains="نقدي") | Q(customer_name__icontains="قطاعي")
-        ca_credit_agg = sales_qs.exclude(cash_filter).exclude(
+        ca_credit_agg = sales_qs.exclude(CASH_KEYWORDS_FILTER).exclude(
             Q(customer_name__isnull=True) | Q(customer_name="")
         ).aggregate(ca=Coalesce(Sum("total_out"), Decimal("0")))
         ca_credit = float(ca_credit_agg["ca"])
-
-        taux_credit_total = (
-            round((ca_credit / ca_total) * 100, 2)
-            if ca_total > 0 else 0.0
-        )
+        
+        if ca_total > 0:
+            taux_credit_total = (ca_credit / ca_total) * 100
+        else:
+            taux_credit_total = 0.0
 
         # ── 3. Taux d'impayés ─────────────────────────────────────────────────
         # = (Montant impayé / Montant total à recouvrer) × 100

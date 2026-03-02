@@ -5,6 +5,7 @@ from .views import (
     TransactionSummaryView,
     TransactionTypeBreakdownView,
     TransactionBranchBreakdownView,
+    TransactionMovementTypesView,
 )
 
 app_name = "transactions"
@@ -12,6 +13,9 @@ app_name = "transactions"
 urlpatterns = [
     # GET /api/transactions/                    → paginated list + filters
     path("", TransactionListView.as_view(), name="transaction-list"),
+
+    # GET /api/transactions/movement-types/     → distinct Arabic movement type labels
+    path("movement-types/", TransactionMovementTypesView.as_view(), name="movement-types"),
 
     # GET /api/transactions/summary/            → monthly sales vs purchases
     path("summary/", TransactionSummaryView.as_view(), name="transaction-summary"),

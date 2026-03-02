@@ -250,18 +250,8 @@ class MovementsParser:
     """
     Strategy: date-range delete then bulk_create.
 
-    Because MaterialMovement has no natural unique key (multiple movements of the
-    same type can occur on the same day for the same product), we cannot use
-    update_or_create. Instead:
-
-        1. Scan all rows to determine [min_date, max_date] covered by the file.
-        2. Delete existing movements for this company ONLY within that date range.
-        3. Bulk-insert all new rows.
-
-    This means:
-        - "Jan–Jun 2025" file  → replaces Jan–Jun only, history before/after preserved.
-        - "Jan–Dec 2025" file  → replaces the full year.
-        - Running the same file twice is idempotent.
+    movement_type is now stored as the raw Arabic label from Excel.
+    No mapping is applied — filtering happens at query level.
 
     Columns: category | material_code | lab_code | material_name | date |
              movement_type | qty_in | price_in | total_in |
@@ -281,7 +271,7 @@ class MovementsParser:
 
         # Pass 1 — collect valid dates to determine range
         file_dates: List[date] = []
-        parsed: List[tuple] = []  # (row_number, row, movement_date)
+        parsed: List[tuple] = []
 
         for i, row in enumerate(data_rows, start=2):
             d = _to_date(row[4]) if len(row) > 4 else None
@@ -298,7 +288,6 @@ class MovementsParser:
         date_from = min(file_dates)
         date_to   = max(file_dates)
 
-        # Build FK caches (avoids N+1 on every row)
         product_cache:  Dict[str, Optional[Product]]  = {}
         branch_cache:   Dict[str, Optional[Branch]]   = {}
         customer_cache: Dict[str, Optional[Customer]] = {}
@@ -308,7 +297,6 @@ class MovementsParser:
         batch:  List[MaterialMovement] = []
 
         with transaction.atomic():
-            # Replace only the date range present in the file
             deleted_count, _ = MaterialMovement.objects.filter(
                 company=company,
                 movement_date__gte=date_from,
@@ -319,7 +307,6 @@ class MovementsParser:
                 f"{date_from} → {date_to} for company '{company.name}'."
             )
 
-            # Pass 2 — build and insert
             for i, row, movement_date in parsed:
                 try:
                     material_code = _to_str(row[1])
@@ -328,8 +315,8 @@ class MovementsParser:
                             errors.append({"row": i, "error": f"Invalid date: {row[4]}"})
                         continue
 
-                    movement_type_raw = _to_str(row[5]) if len(row) > 5 else ""
-                    movement_type     = MOVEMENT_TYPE_MAP.get(movement_type_raw, "other")
+                    # Store the raw Arabic value directly — no mapping
+                    movement_type = _to_str(row[5]) if len(row) > 5 else ""
 
                     if material_code not in product_cache:
                         product_cache[material_code] = Product.objects.filter(
@@ -357,12 +344,11 @@ class MovementsParser:
                         lab_code=_to_str(row[2]) or None,
                         material_name=_to_str(row[3]),
                         movement_date=movement_date,
-                        movement_type=movement_type,
-                        movement_type_raw=movement_type_raw or None,
-                        qty_in=_to_decimal(row[6])  if len(row) > 6  else None,
-                        price_in=_to_decimal(row[7]) if len(row) > 7  else None,
-                        total_in=_to_decimal(row[8]) if len(row) > 8  else None,
-                        qty_out=_to_decimal(row[9])  if len(row) > 9  else None,
+                        movement_type=movement_type,   # ← raw Arabic, no mapping
+                        qty_in=_to_decimal(row[6])    if len(row) > 6  else None,
+                        price_in=_to_decimal(row[7])  if len(row) > 7  else None,
+                        total_in=_to_decimal(row[8])  if len(row) > 8  else None,
+                        qty_out=_to_decimal(row[9])   if len(row) > 9  else None,
                         price_out=_to_decimal(row[10]) if len(row) > 10 else None,
                         total_out=_to_decimal(row[11]) if len(row) > 11 else None,
                         balance_price=_to_decimal(row[12]) if len(row) > 12 else None,
@@ -385,15 +371,14 @@ class MovementsParser:
                 MaterialMovement.objects.bulk_create(batch)
 
         return {
-            "total":    len(data_rows),
-            "created":  created,
-            "updated":  0,
+            "total":            len(data_rows),
+            "created":          created,
+            "updated":          0,
             "date_range":       {"from": str(date_from), "to": str(date_to)},
             "deleted_existing": deleted_count,
-            "errors":   errors,
+            "errors":           errors,
         }
-
-
+        
 class InventoryParser:
     """
     Strategy: update_or_create on (company, product, snapshot_date).

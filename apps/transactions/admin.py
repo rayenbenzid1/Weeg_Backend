@@ -12,7 +12,7 @@ class MaterialMovementAdmin(admin.ModelAdmin):
     list_filter = ["company", "movement_type", "movement_date"]
     search_fields = [
         "material_code", "material_name", "lab_code",
-        "branch_name", "customer_name",
+        "branch_name", "customer_name", "movement_type",
     ]
     readonly_fields = ["id", "created_at"]
     ordering = ["-movement_date", "material_code"]
@@ -25,7 +25,7 @@ class MaterialMovementAdmin(admin.ModelAdmin):
                        "material_name", "category"),
         }),
         ("Movement", {
-            "fields": ("movement_date", "movement_type", "movement_type_raw"),
+            "fields": ("movement_date", "movement_type"),
         }),
         ("Quantities In", {
             "fields": ("qty_in", "price_in", "total_in"),
