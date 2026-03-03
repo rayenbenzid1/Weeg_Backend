@@ -127,11 +127,6 @@ class CreditKPIView(APIView):
             Q(customer_name__isnull=True) | Q(customer_name="")
         ).aggregate(ca=Coalesce(Sum("total_out"), Decimal("0")))
         ca_credit = float(ca_credit_agg["ca"])
-        
-        if ca_total > 0:
-            taux_credit_total = (ca_credit / ca_total) * 100
-        else:
-            taux_credit_total = 0.0
 
         # ── 3. Taux d'impayés ─────────────────────────────────────────────────
         # = (Montant impayé / Montant total à recouvrer) × 100
@@ -154,7 +149,11 @@ class CreditKPIView(APIView):
         )
 
         grand_total = float(aging_totals["grand_total"])
-
+        credit_realized = ca_total - grand_total
+        if ca_total > 0:
+         taux_credit_total = (credit_realized / ca_total) * 100
+        else:
+          taux_credit_total = 0.0
         # Overdue = d61_90 and beyond (past 60 days is truly overdue)
         overdue = sum(float(aging_totals[f"sum_{b}"]) for b in [
             "d61_90", "d91_120", "d121_150", "d151_180",
@@ -202,7 +201,12 @@ class CreditKPIView(APIView):
             round((montant_recupere / ca_credit) * 100, 2)
             if ca_credit > 0 else 0.0
         )
-
+        base_recouvrement = ca_total - grand_total
+        montant_recupere = max(0.0, ca_credit - grand_total)
+        taux_recouvrement = (
+        round((montant_recupere / base_recouvrement) * 100, 2)
+        if base_recouvrement > 0 else 0.0
+      )
         # ── Top 5 risky customers ─────────────────────────────────────────────
         all_credit_records = list(
             credit_aging_qs.filter(total__gt=0)
@@ -312,7 +316,7 @@ class CreditKPIView(APIView):
                 "taux_recouvrement": {
                     "value": taux_recouvrement,
                     "recovered_amount": round(montant_recupere, 2),
-                    "total_credit": round(ca_credit, 2),
+                    "total_credit": round(ca_total - grand_total, 2),
                     "label": "Collection Rate",
                     "unit": "%",
                     "description": "Percentage of credit sales successfully collected",
