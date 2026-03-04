@@ -143,6 +143,31 @@ class TransactionMovementTypesView(APIView):
         return Response({"movement_types": list(types)})
 
 
+class TransactionBranchesView(APIView):
+    """
+    GET /api/transactions/branches/
+
+    Returns the distinct list of branch names present in the DB
+    for this company. Used to populate filter dropdowns in the frontend.
+
+    Response: { "branches": ["Branch A", "Branch B", ...] }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        branches = (
+            MaterialMovement.objects
+            .filter(company=request.user.company)
+            .exclude(branch_name__isnull=True)
+            .exclude(branch_name="")
+            .values_list("branch_name", flat=True)
+            .distinct()
+            .order_by("branch_name")
+        )
+        return Response({"branches": list(branches)})
+
+
 class TransactionSummaryView(APIView):
     """
     GET /api/transactions/summary/

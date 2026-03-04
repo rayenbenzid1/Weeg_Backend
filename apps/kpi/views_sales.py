@@ -150,61 +150,51 @@ class SalesKPIView(APIView):
             for row in monthly_qs
         ]
 
-        # ── 1.5 Marge par produit ─────────────────────────────────────────────
-        # Marge % = (total_out - total_in) / total_out × 100
-        # We use balance_price (cost) vs price_out (sell price) when available.
-        # Fallback: compare total_out with total purchases for same material_code
+        # ── 1.5 Marge par produit (Gross Margin) ───────────────────────────────
+        # Gross Margin per item (%) ≈ [(price_out − balance_price) ÷ price_out] × 100
+        margin_data = {}  # {material_code: {"name": str, "margins": [list], "revenue": float}}
+
         margin_qs = (
             sales_period
-            .values("material_code", "material_name")
-            .annotate(
-                revenue=Coalesce(Sum("total_out"), Decimal("0")),
-                qty_sold=Coalesce(Sum("qty_out"), Decimal("0")),
-                # balance_price is cost price per unit in the movements file
-                avg_cost=Coalesce(Sum("balance_price"), Decimal("0")),
-                count=Count("id"),
-            )
-            .order_by("-revenue")[:top_n]
+            .values("material_code", "material_name", "price_out", "balance_price", "total_out")
+            .filter(price_out__isnull=False)
         )
 
-        # For margin, we need cost. We use balance_price from purchase movements
-        purchase_costs = {}
-        purchase_qs = (
-            base_qs
-            .filter(movement_type__in=PURCHASE_TYPES,
-                    movement_date__gte=period_from,
-                    movement_date__lte=period_to)
-            .values("material_code")
-            .annotate(
-                total_cost=Coalesce(Sum("total_in"), Decimal("0")),
-                total_qty_in=Coalesce(Sum("qty_in"), Decimal("0")),
-            )
-        )
-        for row in purchase_qs:
-            if float(row["total_qty_in"]) > 0:
-                purchase_costs[row["material_code"]] = {
-                    "total_cost": float(row["total_cost"]),
-                    "unit_cost": float(row["total_cost"]) / float(row["total_qty_in"]),
+        for row in margin_qs:
+            code = row["material_code"]
+            name = row["material_name"]
+            price_out = float(row["price_out"]) if row["price_out"] else 0.0
+            balance_price = float(row["balance_price"]) if row["balance_price"] else 0.0
+            revenue = float(row["total_out"]) if row["total_out"] else 0.0
+
+            # Calculate margin for this item: [(price_out - balance_price) / price_out] × 100
+            if price_out > 0:
+                margin_pct = ((price_out - balance_price) / price_out) * 100
+            else:
+                margin_pct = None
+
+            if code not in margin_data:
+                margin_data[code] = {
+                    "name": name,
+                    "margins": [],
+                    "revenue": 0.0,
                 }
 
-        top_margins = []
-        for row in margin_qs:
-            revenue = float(row["revenue"])
-            qty_sold = float(row["qty_sold"])
-            cost_info = purchase_costs.get(row["material_code"])
+            if margin_pct is not None:
+                margin_data[code]["margins"].append(margin_pct)
+            margin_data[code]["revenue"] += revenue
 
-            if cost_info and qty_sold > 0:
-                estimated_cost = cost_info["unit_cost"] * qty_sold
-                margin_pct = round(((revenue - estimated_cost) / revenue) * 100, 2) if revenue > 0 else 0.0
-            else:
-                margin_pct = None  # Cannot compute without cost data
+        # Calculate average margin per product and sort by revenue
+        top_margins = []
+        for code, data in sorted(margin_data.items(), key=lambda x: -x[1]["revenue"])[:top_n]:
+            margins = [m for m in data["margins"] if m is not None]
+            avg_margin = round(sum(margins) / len(margins), 2) if margins else None
 
             top_margins.append({
-                "material_code": row["material_code"],
-                "material_name": row["material_name"],
-                "revenue":       revenue,
-                "qty_sold":      qty_sold,
-                "margin_pct":    margin_pct,
+                "material_code": code,
+                "material_name": data["name"],
+                "revenue":       round(data["revenue"], 2),
+                "margin_pct":    avg_margin,
             })
 
         # ── 1.6 Top clients ────────────────────────────────────────────────────
@@ -245,15 +235,17 @@ class SalesKPIView(APIView):
         avg_daily_qty   = total_qty_sold / n_days if n_days > 0 else 0
         avg_daily_revenue = ca_total / n_days if n_days > 0 else 0
 
-        # Product-level: avg days to sell one unit
+        # Product-level: avg days to sell one unit + avg revenue per day
         avg_days_per_product = []
         for p in top_products[:10]:
-            daily = p["total_qty"] / n_days if n_days > 0 else 0
+            daily_qty = p["total_qty"] / n_days if n_days > 0 else 0
+            daily_revenue = p["total_revenue"] / n_days if n_days > 0 else 0
             avg_days_per_product.append({
                 "material_code": p["material_code"],
                 "material_name": p["material_name"],
-                "avg_daily_qty": round(daily, 4),
-                "days_to_sell_100_units": round(100 / daily, 1) if daily > 0 else None,
+                "avg_daily_qty": round(daily_qty, 4),
+                "avg_daily_revenue": round(daily_revenue, 2),
+                "days_to_sell_100_units": round(100 / daily_qty, 1) if daily_qty > 0 else None,
             })
 
         return Response({
