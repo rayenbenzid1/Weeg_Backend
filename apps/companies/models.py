@@ -3,18 +3,6 @@ from django.db import models
 
 
 class Company(models.Model):
-    """
-    Model representing a company (client organization).
-
-    Hierarchy:
-        Company → Branch (multiple branches per company)
-        Company → Manager (each manager belongs to one company)
-        Company → Agent   (via their manager, same company)
-
-    A Company is automatically created when a Manager registers
-    (if it doesn't already exist) or can be pre-created by an Admin.
-    """
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     name = models.CharField(
@@ -30,6 +18,28 @@ class Company(models.Model):
         null=True,
         verbose_name="Industry / Sector",
         help_text="Main business sector or industry.",
+    )
+
+    country = models.CharField(          # ← ADD
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name="Country",
+    )
+
+    city = models.CharField(             # ← ADD
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name="City",
+    )
+
+    current_erp = models.CharField(      # ← ADD
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name="Current ERP",
+        help_text="ERP or software currently used by the company.",
     )
 
     phone = models.CharField(

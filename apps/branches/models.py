@@ -42,7 +42,9 @@ class Branch(models.Model):
         null=True,
         verbose_name="Branch email",
     )
-
+    country = models.CharField(max_length=100, blank=True, null=True, verbose_name="Country")
+    city = models.CharField(max_length=100, blank=True, null=True, verbose_name="City")
+    current_erp = models.CharField(max_length=100, blank=True, null=True, verbose_name="Current ERP", help_text="ERP or business software currently used.")
     is_active = models.BooleanField(
         default=True,
         verbose_name="Active",

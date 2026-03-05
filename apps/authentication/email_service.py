@@ -56,18 +56,17 @@ def _send(subject: str, html_body: str, recipient: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def notify_admin_new_manager(manager) -> bool:
-    """
-    Sends an email to the admin when a new manager registers.
-
-    Args:
-        manager: User instance (role=manager, status=pending)
-
-    Returns:
-        True if the email was sent successfully.
-    """
-    admin_email = _get_admin_email()
+    admin_email  = _get_admin_email()
     frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
     verification_url = f"{frontend_url}/admin/verification"
+
+    # ── Collect company info ──────────────────────────────────────────────
+    company     = manager.company
+    co_name     = company.name         if company else "—"
+    co_industry = company.industry     if company and company.industry     else "—"
+    co_country  = company.country      if company and company.country      else "—"
+    co_city     = company.city         if company and company.city         else "—"
+    co_erp      = company.current_erp  if company and company.current_erp  else "—"
 
     subject = f"[WEEG] New Manager Account Request — {manager.full_name}"
 
@@ -77,123 +76,124 @@ def notify_admin_new_manager(manager) -> bool:
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>New Manager Request</title>
     </head>
-    <body style="margin:0; padding:0; background-color:#f8fafc; font-family: 'Segoe UI', Arial, sans-serif;">
-        <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc; padding: 40px 20px;">
+    <body style="margin:0;padding:0;background-color:#f8fafc;font-family:'Segoe UI',Arial,sans-serif;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:40px 20px;">
+        <tr><td align="center">
+          <table width="600" cellpadding="0" cellspacing="0"
+            style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+            <!-- Header -->
             <tr>
-                <td align="center">
-                    <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-
-                        <!-- Header -->
-                        <tr>
-                            <td style="background: linear-gradient(135deg, #4f46e5, #7c3aed); padding: 32px 40px; text-align:center;">
-                                <div style="display:inline-block; background:rgba(255,255,255,0.15); border-radius:12px; padding:12px 20px; margin-bottom:16px;">
-                                    <span style="color:#ffffff; font-size:28px; font-weight:900; letter-spacing:2px;">WEEG</span>
-                                </div>
-                                <h1 style="color:#ffffff; margin:0; font-size:22px; font-weight:600;">
-                                    New Manager Account Request
-                                </h1>
-                            </td>
-                        </tr>
-
-                        <!-- Body -->
-                        <tr>
-                            <td style="padding: 40px;">
-                                <p style="color:#374151; font-size:16px; margin:0 0 24px;">
-                                    Hello Administrator,
-                                </p>
-                                <p style="color:#6b7280; font-size:15px; margin:0 0 28px; line-height:1.6;">
-                                    A new Manager has just created an account on the WEEG platform.
-                                    Their account is currently <strong style="color:#f59e0b;">pending approval</strong>.
-                                </p>
-
-                                <!-- Manager Info Card -->
-                                <table width="100%" cellpadding="0" cellspacing="0"
-                                    style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:10px; margin-bottom:32px;">
-                                    <tr>
-                                        <td style="padding:24px;">
-                                            <p style="margin:0 0 4px; color:#9ca3af; font-size:12px; text-transform:uppercase; letter-spacing:1px;">Candidate Information</p>
-                                            <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;">
-                                                <tr>
-                                                    <td style="padding:8px 0; border-bottom:1px solid #f3f4f6;">
-                                                        <span style="color:#6b7280; font-size:14px;">Full name</span>
-                                                    </td>
-                                                    <td style="padding:8px 0; border-bottom:1px solid #f3f4f6; text-align:right;">
-                                                        <strong style="color:#111827; font-size:14px;">{manager.full_name}</strong>
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="padding:8px 0; border-bottom:1px solid #f3f4f6;">
-                                                        <span style="color:#6b7280; font-size:14px;">Email</span>
-                                                    </td>
-                                                    <td style="padding:8px 0; border-bottom:1px solid #f3f4f6; text-align:right;">
-                                                        <strong style="color:#111827; font-size:14px;">{manager.email}</strong>
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="padding:8px 0; border-bottom:1px solid #f3f4f6;">
-                                                        <span style="color:#6b7280; font-size:14px;">Company</span>
-                                                    </td>
-                                                    <td style="padding:8px 0; border-bottom:1px solid #f3f4f6; text-align:right;">
-                                                        <strong style="color:#111827; font-size:14px;">{manager.company_name or "—"}</strong>
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="padding:8px 0;">
-                                                        <span style="color:#6b7280; font-size:14px;">Phone</span>
-                                                    </td>
-                                                    <td style="padding:8px 0; text-align:right;">
-                                                        <strong style="color:#111827; font-size:14px;">{manager.phone_number or "—"}</strong>
-                                                    </td>
-                                                </tr>
-                                            </table>
-                                        </td>
-                                    </tr>
-                                </table>
-
-                                <!-- CTA -->
-                                <table width="100%" cellpadding="0" cellspacing="0">
-                                    <tr>
-                                        <td align="center">
-                                            <a href="{verification_url}"
-                                               style="display:inline-block; background:linear-gradient(135deg, #4f46e5, #7c3aed);
-                                                      color:#ffffff; font-size:15px; font-weight:600;
-                                                      padding:14px 36px; border-radius:8px; text-decoration:none;
-                                                      letter-spacing:0.3px;">
-                                                Review Request →
-                                            </a>
-                                        </td>
-                                    </tr>
-                                </table>
-
-                                <p style="color:#9ca3af; font-size:13px; margin:28px 0 0; text-align:center; line-height:1.5;">
-                                    This link redirects you to the WEEG Admin verification page.<br>
-                                    You can approve or reject this account from the interface.
-                                </p>
-                            </td>
-                        </tr>
-
-                        <!-- Footer -->
-                        <tr>
-                            <td style="background:#f9fafb; border-top:1px solid #e5e7eb; padding:20px 40px; text-align:center;">
-                                <p style="color:#9ca3af; font-size:12px; margin:0;">
-                                    WEEG — Financial Analytics & System Intelligence<br>
-                                    This is an automated email, please do not reply.
-                                </p>
-                            </td>
-                        </tr>
-
-                    </table>
-                </td>
+              <td style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:32px 40px;text-align:center;">
+                <div style="display:inline-block;background:rgba(255,255,255,0.15);border-radius:12px;padding:12px 20px;margin-bottom:16px;">
+                  <span style="color:#ffffff;font-size:28px;font-weight:900;letter-spacing:2px;">WEEG</span>
+                </div>
+                <h1 style="color:#ffffff;margin:0;font-size:22px;font-weight:600;">New Manager Account Request</h1>
+              </td>
             </tr>
-        </table>
+
+            <!-- Body -->
+            <tr>
+              <td style="padding:40px;">
+                <p style="color:#374151;font-size:16px;margin:0 0 8px;">Hello Administrator,</p>
+                <p style="color:#6b7280;font-size:15px;margin:0 0 28px;line-height:1.6;">
+                  A new Manager has just created an account on the WEEG platform.
+                  Their account is currently <strong style="color:#f59e0b;">pending approval</strong>.
+                </p>
+
+                <!-- ── Manager Info ── -->
+                <p style="color:#111827;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">
+                  👤 Manager Information
+                </p>
+                <table width="100%" cellpadding="0" cellspacing="0"
+                  style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:20px;">
+                  <tr><td style="padding:20px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding:7px 0;border-bottom:1px solid #f3f4f6;color:#6b7280;font-size:14px;width:40%;">Full name</td>
+                        <td style="padding:7px 0;border-bottom:1px solid #f3f4f6;text-align:right;"><strong style="color:#111827;font-size:14px;">{manager.full_name}</strong></td>
+                      </tr>
+                      <tr>
+                        <td style="padding:7px 0;border-bottom:1px solid #f3f4f6;color:#6b7280;font-size:14px;">Email</td>
+                        <td style="padding:7px 0;border-bottom:1px solid #f3f4f6;text-align:right;"><strong style="color:#111827;font-size:14px;">{manager.email}</strong></td>
+                      </tr>
+                      <tr>
+                        <td style="padding:7px 0;color:#6b7280;font-size:14px;">Phone</td>
+                        <td style="padding:7px 0;text-align:right;"><strong style="color:#111827;font-size:14px;">{manager.phone_number or "—"}</strong></td>
+                      </tr>
+                    </table>
+                  </td></tr>
+                </table>
+
+                <!-- ── Company Info ── -->
+                <p style="color:#111827;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">
+                  🏢 Company Information
+                </p>
+                <table width="100%" cellpadding="0" cellspacing="0"
+                  style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;margin-bottom:28px;">
+                  <tr><td style="padding:20px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding:7px 0;border-bottom:1px solid #e0f2fe;color:#0369a1;font-size:14px;width:40%;">Company name</td>
+                        <td style="padding:7px 0;border-bottom:1px solid #e0f2fe;text-align:right;"><strong style="color:#0c4a6e;font-size:14px;">{co_name}</strong></td>
+                      </tr>
+                      <tr>
+                        <td style="padding:7px 0;border-bottom:1px solid #e0f2fe;color:#0369a1;font-size:14px;">Business activity</td>
+                        <td style="padding:7px 0;border-bottom:1px solid #e0f2fe;text-align:right;"><strong style="color:#0c4a6e;font-size:14px;">{co_industry}</strong></td>
+                      </tr>
+                      <tr>
+                        <td style="padding:7px 0;border-bottom:1px solid #e0f2fe;color:#0369a1;font-size:14px;">Country</td>
+                        <td style="padding:7px 0;border-bottom:1px solid #e0f2fe;text-align:right;"><strong style="color:#0c4a6e;font-size:14px;">{co_country}</strong></td>
+                      </tr>
+                      <tr>
+                        <td style="padding:7px 0;border-bottom:1px solid #e0f2fe;color:#0369a1;font-size:14px;">City</td>
+                        <td style="padding:7px 0;border-bottom:1px solid #e0f2fe;text-align:right;"><strong style="color:#0c4a6e;font-size:14px;">{co_city}</strong></td>
+                      </tr>
+                      <tr>
+                        <td style="padding:7px 0;color:#0369a1;font-size:14px;">Current ERP</td>
+                        <td style="padding:7px 0;text-align:right;"><strong style="color:#0c4a6e;font-size:14px;">{co_erp}</strong></td>
+                      </tr>
+                    </table>
+                  </td></tr>
+                </table>
+
+                <!-- CTA -->
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr><td align="center">
+                    <a href="{verification_url}"
+                      style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#7c3aed);
+                             color:#ffffff;font-size:15px;font-weight:600;
+                             padding:14px 36px;border-radius:8px;text-decoration:none;">
+                      Review Request →
+                    </a>
+                  </td></tr>
+                </table>
+
+                <p style="color:#9ca3af;font-size:13px;margin:24px 0 0;text-align:center;line-height:1.5;">
+                  This link redirects you to the WEEG Admin verification page.
+                </p>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 40px;text-align:center;">
+                <p style="color:#9ca3af;font-size:12px;margin:0;">
+                  WEEG — Financial Analytics & System Intelligence<br>
+                  This is an automated email, please do not reply.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td></tr>
+      </table>
     </body>
     </html>
     """
 
     return _send(subject, html_body, admin_email)
-
 
 # ---------------------------------------------------------------------------
 # 2. Notify Manager — account approved

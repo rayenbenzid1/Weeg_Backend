@@ -55,6 +55,10 @@ class UserListSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     branch_name = serializers.CharField(source="branch.name", read_only=True, default=None)
     company_name = serializers.CharField(read_only=True)
+    company_industry    = serializers.CharField(source="company.industry",    read_only=True, default=None, allow_null=True)
+    company_country     = serializers.CharField(source="company.country",     read_only=True, default=None, allow_null=True)
+    company_city        = serializers.CharField(source="company.city",        read_only=True, default=None, allow_null=True)
+    company_current_erp = serializers.CharField(source="company.current_erp", read_only=True, default=None, allow_null=True)
 
     class Meta:
         model = User
@@ -68,6 +72,10 @@ class UserListSerializer(serializers.ModelSerializer):
             "branch_name",
             "company",
             "company_name",
+            "company_industry",     # ← NEW
+            "company_country",      # ← NEW
+            "company_city",         # ← NEW
+            "company_current_erp", 
             "created_at",
             "permissions_list",
         ]
@@ -128,19 +136,26 @@ class ChangePasswordSerializer(serializers.Serializer):
 # MANAGER SIGNUP SERIALIZER
 # =============================================================================
 
+
 class ManagerSignupSerializer(serializers.ModelSerializer):
     """
     Allows a manager to sign up via the public form.
     The account is created with PENDING status.
-    The 'company_name' field creates or reuses an existing Company.
+
+    Fields (v2):
+        company_name  — creates or reuses an existing Company
+        industry      — business activity / sector
+        country       — country of the company
+        city          — city of the company
+        current_erp   — ERP / software currently used (optional)
     """
-    password = serializers.CharField(write_only=True, required=True, min_length=8)
+    password         = serializers.CharField(write_only=True, required=True, min_length=8)
     password_confirm = serializers.CharField(write_only=True, required=True)
-    company_name = serializers.CharField(
-        required=True,
-        max_length=255,
-        help_text="Official name of the manager's company.",
-    )
+    company_name     = serializers.CharField(required=True, max_length=255)
+    industry         = serializers.CharField(required=True, max_length=100)
+    country          = serializers.CharField(required=True, max_length=100)
+    city             = serializers.CharField(required=True, max_length=100)
+    current_erp      = serializers.CharField(required=False, allow_blank=True, max_length=100, default='')
 
     class Meta:
         model = User
@@ -150,6 +165,10 @@ class ManagerSignupSerializer(serializers.ModelSerializer):
             "last_name",
             "phone_number",
             "company_name",
+            "industry",
+            "country",
+            "city",
+            "current_erp",
             "password",
             "password_confirm",
         ]
@@ -161,10 +180,28 @@ class ManagerSignupSerializer(serializers.ModelSerializer):
         return email
 
     def validate_company_name(self, value):
-        name = value.strip()
-        if not name:
+        v = value.strip()
+        if not v:
             raise serializers.ValidationError("Company name is required.")
-        return name
+        return v
+
+    def validate_industry(self, value):
+        v = value.strip()
+        if not v:
+            raise serializers.ValidationError("Business activity is required.")
+        return v
+
+    def validate_country(self, value):
+        v = value.strip()
+        if not v:
+            raise serializers.ValidationError("Country is required.")
+        return v
+
+    def validate_city(self, value):
+        v = value.strip()
+        if not v:
+            raise serializers.ValidationError("City is required.")
+        return v
 
     def validate_password(self, value):
         try:
@@ -182,11 +219,38 @@ class ManagerSignupSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data.pop("password_confirm")
-        password = validated_data.pop("password")
+        password     = validated_data.pop("password")
         company_name = validated_data.pop("company_name")
+        industry     = validated_data.pop("industry")
+        country      = validated_data.pop("country")
+        city         = validated_data.pop("city")
+        current_erp  = validated_data.pop("current_erp", "")
 
-        # Get or create the company
-        company, _ = Company.objects.get_or_create(name=company_name)
+        # Get or create Company, storing all new fields on creation
+        company, created = Company.objects.get_or_create(
+            name=company_name,
+            defaults={
+                "industry":   industry,
+                "country":    country,
+                "city":       city,
+                "current_erp": current_erp,
+            },
+        )
+
+        # If company already existed, patch blank fields
+        if not created:
+            changed = False
+            for field, val in [
+                ("industry",    industry),
+                ("country",     country),
+                ("city",        city),
+                ("current_erp", current_erp),
+            ]:
+                if not getattr(company, field, None) and val:
+                    setattr(company, field, val)
+                    changed = True
+            if changed:
+                company.save()
 
         user = User(
             role=User.Role.MANAGER,
@@ -199,8 +263,8 @@ class ManagerSignupSerializer(serializers.ModelSerializer):
         user.set_password(password)
         user.save()
         return user
-
-
+    
+    
 # =============================================================================
 # AGENT CREATION BY MANAGER
 # =============================================================================
