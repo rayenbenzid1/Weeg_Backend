@@ -1,3 +1,16 @@
+"""
+apps/aging/views.py  — PATCHED
+================================
+Key change: AgingListView now resolves a `branch` field for every record
+by joining MaterialMovement (حركة المادة) on customer_name.
+
+Fallback chain (same logic as frontend, but now done server-side):
+  1. MaterialMovement join  — customer_name match
+  2. Arabic keyword in `account` string
+  3. Account-code prefix mapping (1141/42/44 → Karimia, 1145 → Janzour, 1146/47 → Misrata)
+  4. None
+"""
+
 from django.db.models import Q, Sum
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -10,7 +23,7 @@ from .serializers import (
     AgingListSerializer,
 )
 
-# Ordered bucket definitions: (field_name, display_label, midpoint_days)
+# ── Bucket definitions ────────────────────────────────────────────
 AGING_BUCKETS = [
     ("current",   "Current",      0),
     ("d1_30",     "1-30d",       15),
@@ -27,9 +40,109 @@ AGING_BUCKETS = [
     ("over_330",  ">330d",      400),
 ]
 
+# ── Arabic keyword → branch name mapping ─────────────────────────
+BRANCH_KEYWORDS = [
+    ("مصراتة",   "مخزن صالة عرض مصراتة"),
+    ("جنزور",    "مخزن صالة عرض جنزور"),
+    ("الدهماني", "مخزن صالة عرض الدهماني"),
+    ("الفلاح",   "مخزن صالة عرض الدهماني"),
+    ("الكريمية", "مخزن صالة عرض الكريمية"),
+    ("المزرعة",  "مخزن المزرعة"),
+    ("بنغازي",   "مخزن بنغازي"),
+    ("متكاملة",  "مخزن الأنظمة المتكاملة - الكريمية"),
+]
+
+# ── Account-code prefix → branch ─────────────────────────────────
+# Based on Excel data analysis (اعمار الذمم 2025 + حركة المادة 2025)
+CODE_PREFIX_BRANCHES = [
+    # 6-digit prefixes first (most specific)
+    ("114500", "مخزن صالة عرض جنزور"),
+    ("114510", "مخزن صالة عرض جنزور"),
+    ("114511", "مخزن صالة عرض جنزور"),
+    ("11450",  "مخزن صالة عرض جنزور"),
+    ("11451",  "مخزن صالة عرض جنزور"),
+    # Misrata
+    ("1146",   "مخزن صالة عرض مصراتة"),
+    ("1147",   "مخزن صالة عرض مصراتة"),
+    # Karimia (HQ) — 1141, 1142, 1143, 1144
+    # Note: 1143 contains some Benghazi (caught by keyword above), rest → Karimia
+    ("1141",   "مخزن صالة عرض الكريمية"),
+    ("1142",   "مخزن صالة عرض الكريمية"),
+    ("1143",   "مخزن صالة عرض الكريمية"),
+    ("1144",   "مخزن صالة عرض الكريمية"),
+]
+
+
+def _detect_branch_from_text(text: str) -> str | None:
+    """Return Arabic branch name if a keyword is found in text."""
+    if not text:
+        return None
+    for keyword, branch in BRANCH_KEYWORDS:
+        if keyword in text:
+            return branch
+    return None
+
+
+def _detect_branch_from_code(account_code: str) -> str | None:
+    """Return Arabic branch name based on account code prefix."""
+    if not account_code:
+        return None
+    code = account_code.strip()
+    # Strip leading zeros / spaces
+    for prefix, branch in CODE_PREFIX_BRANCHES:
+        if code.startswith(prefix):
+            return branch
+    return None
+
+
+def _resolve_branch(record: AgingReceivable, sales_map: dict) -> str | None:
+    """
+    4-layer branch resolution (server-side mirror of frontend logic):
+      1. MaterialMovement join via customer name
+      2. Arabic keyword in account string
+      3. Arabic keyword in customer_name
+      4. Account code prefix
+    Returns the raw Arabic branch string (same values as مخزن صالة عرض X)
+    so the frontend AR_TO_EN table maps it to English without any changes.
+    """
+    # Layer 1: sales transaction map
+    # Customer model uses .name (not .customer_name)
+    cname = record.customer.name if record.customer else None
+    if cname and cname in sales_map:
+        return sales_map[cname]
+
+    # Also try the name part of the account string
+    if record.account:
+        parts = record.account.split("-", 1)
+        acct_name = parts[1].strip() if len(parts) > 1 else ""
+        if acct_name and acct_name in sales_map:
+            return sales_map[acct_name]
+
+    # Layer 2: keyword in account string
+    branch = _detect_branch_from_text(record.account or "")
+    if branch:
+        return branch
+
+    # Layer 3: keyword in customer_name
+    branch = _detect_branch_from_text(cname or "")
+    if branch:
+        return branch
+
+    # Layer 4: account code prefix
+    branch = _detect_branch_from_code(record.account_code or "")
+    if branch:
+        return branch
+
+    # Try leading digits of the full account string as a code
+    if record.account:
+        branch = _detect_branch_from_code(record.account)
+        if branch:
+            return branch
+
+    return None
+
 
 def _resolve_report_date(company, param):
-    """Return the report_date to use: param if provided, else latest in DB."""
     if param:
         return param
     return (
@@ -41,22 +154,38 @@ def _resolve_report_date(company, param):
     )
 
 
+def _build_sales_map(company) -> dict:
+    """
+    Build {customer_name → branch_name} from MaterialMovement (ف بيع only).
+    This is the most reliable source: حركة المادة has الفرع on every row.
+    """
+    from apps.transactions.models import MaterialMovement
+    qs = (
+        MaterialMovement.objects
+        .filter(company=company, movement_type="ف بيع")
+        .exclude(Q(customer_name__isnull=True) | Q(customer_name=""))
+        .exclude(Q(branch_name__isnull=True) | Q(branch_name=""))
+        .values_list("customer_name", "branch_name")
+        .distinct()
+    )
+    sales_map = {}
+    for cname, branch in qs:
+        if cname and cname not in sales_map:
+            sales_map[cname] = branch
+    return sales_map
+
+
 class AgingListView(APIView):
     """
     GET /api/aging/
-    Returns a paginated list of aging receivables.
+    Returns paginated aging receivables WITH resolved branch field.
 
     Query params:
-        report_date=YYYY-MM-DD        — defaults to most recent
-        search=<str>                  — account or account_code
-        risk=low|medium|high|critical — filter by risk score
+        report_date=YYYY-MM-DD
+        search=<str>
+        risk=low|medium|high|critical
         ordering=total|account_code|report_date
-        page=<int>  page_size=<int>   — default 50, max 200
-
-    Response includes:
-        total_accounts  — ALL rows in this report (e.g. 377), changes per import
-        count           — rows with balance > 0 in this report (e.g. 174)
-        records         — paginated list (balance > 0 only)
+        page=<int>  page_size=<int>
     """
 
     permission_classes = [IsAuthenticated]
@@ -70,31 +199,19 @@ class AgingListView(APIView):
     def get(self, request):
         company = request.user.company
 
-        # Resolve report date first
         report_date = _resolve_report_date(
             company, request.query_params.get("report_date")
         )
 
-        # ── qs_all: ALL rows for this report date, NO balance filter ─────────
-        # This represents every line in the imported Excel file.
         qs_all = AgingReceivable.objects.filter(
             company=company,
             report_date=report_date,
         )
-
-        # total_accounts = total rows in the imported Excel for this report
-        # e.g. 377 — includes accounts with balance = 0
-        # This number changes every time a new Excel is imported.
         total_accounts = qs_all.count()
-
-        # credit_customers = accounts with an open balance > 0 in this report
-        # e.g. 174
         credit_customers = qs_all.filter(total__gt=0).count()
 
-        # ── qs: filtered queryset for display (balance > 0 only) ─────────────
         qs = qs_all.filter(total__gt=0).select_related("customer")
 
-        # Search filter
         search = request.query_params.get("search", "").strip()
         if search:
             qs = qs.filter(
@@ -102,47 +219,50 @@ class AgingListView(APIView):
                 Q(account_code__icontains=search)
             )
 
-        # Risk filter (computed in Python — no DB column)
         risk_filter = request.query_params.get("risk", "").strip().lower()
 
-        # Ordering
         ordering = request.query_params.get("ordering", "-total")
         if ordering in self.ALLOWED_ORDERINGS:
             qs = qs.order_by(ordering)
 
-        # Grand total
         totals = qs.aggregate(grand_total=Sum("total"))
 
-        # Fetch all for risk filtering
+        # ── Build branch map from MaterialMovement ───────────────
+        sales_map = _build_sales_map(company)
+
+        # ── Fetch all, resolve branch, apply risk filter ─────────
         all_records = list(qs)
         if risk_filter in ("low", "medium", "high", "critical"):
             all_records = [r for r in all_records if r.risk_score == risk_filter]
 
-        # Pagination
+        # ── Serialize + inject branch ────────────────────────────
         total_count = len(all_records)
         page      = max(1, int(request.query_params.get("page", 1)))
-        page_size = min(200, max(1, int(request.query_params.get("page_size", 50))))
+        page_size = min(200, max(1, int(request.query_params.get("page_size", 200))))
         start     = (page - 1) * page_size
         page_records = all_records[start: start + page_size]
 
+        serialized = AgingListSerializer(page_records, many=True).data
+
+        # Inject branch into each serialized record
+        for i, record in enumerate(page_records):
+            serialized[i]["branch"] = _resolve_branch(record, sales_map)
+
         return Response({
-            "report_date":    str(report_date) if report_date else None,
-            "total_accounts": total_accounts,   # 377 — ALL rows in this Excel import
-            "count":          total_count,      # 174 — rows with balance > 0
+            "report_date":      str(report_date) if report_date else None,
+            "total_accounts":   total_accounts,
+            "count":            total_count,
             "credit_customers": credit_customers,
-            "page":           page,
-            "page_size":      page_size,
-            "total_pages":    max(1, (total_count + page_size - 1) // page_size),
-            "grand_total":    float(totals["grand_total"] or 0),
-            "records":        AgingListSerializer(page_records, many=True).data,
+            "page":             page,
+            "page_size":        page_size,
+            "total_pages":      max(1, (total_count + page_size - 1) // page_size),
+            "grand_total":      float(totals["grand_total"] or 0),
+            "records":          serialized,
         })
 
 
 class AgingDetailView(APIView):
-    """
-    GET /api/aging/{id}/
-    Returns the full aging record including all bucket breakdowns.
-    """
+    """GET /api/aging/{id}/"""
 
     permission_classes = [IsAuthenticated]
 
@@ -157,25 +277,20 @@ class AgingDetailView(APIView):
                 {"error": "Aging record not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return Response(AgingReceivableSerializer(record).data)
+        data = AgingReceivableSerializer(record).data
+        # Inject branch
+        sales_map = _build_sales_map(request.user.company)
+        data["branch"] = _resolve_branch(record, sales_map)
+        return Response(data)
 
 
 class AgingRiskView(APIView):
-    """
-    GET /api/aging/risk/
-    Returns top customers sorted by overdue balance and risk classification.
-
-    Query params:
-        report_date=YYYY-MM-DD        — defaults to most recent
-        risk=high|critical            — filter by risk level (default: all non-low)
-        limit=<int>                   — number of records (default: 20)
-    """
+    """GET /api/aging/risk/"""
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         company = request.user.company
-
         report_date = _resolve_report_date(
             company, request.query_params.get("report_date")
         )
@@ -195,6 +310,7 @@ class AgingRiskView(APIView):
             records = [r for r in records if r.risk_score != "low"]
 
         records = records[:limit]
+        sales_map = _build_sales_map(company)
 
         return Response({
             "report_date": str(report_date) if report_date else None,
@@ -204,7 +320,8 @@ class AgingRiskView(APIView):
                     "id":            str(r.id),
                     "account":       r.account,
                     "account_code":  r.account_code,
-                    "customer_name": r.customer.name if r.customer else None,
+                    "customer_name": (r.customer.name if r.customer else None) or _extract_name(r.account),
+                    "branch":        _resolve_branch(r, sales_map),
                     "total":         float(r.total),
                     "overdue_total": float(r.overdue_total),
                     "risk_score":    r.risk_score,
@@ -215,25 +332,16 @@ class AgingRiskView(APIView):
 
 
 class AgingDistributionView(APIView):
-    """
-    GET /api/aging/distribution/
-    Returns the sum of each aging bucket across all customers.
-
-    Query params:
-        report_date=YYYY-MM-DD — defaults to most recent
-    """
+    """GET /api/aging/distribution/"""
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         company = request.user.company
-
         report_date = _resolve_report_date(
             company, request.query_params.get("report_date")
         )
 
-        # Aggregate ALL rows for this report (no total>0 filter)
-        # so bucket sums match the Excel exactly (e.g. current = 95,632)
         qs = AgingReceivable.objects.filter(
             company=company,
             report_date=report_date,
@@ -248,7 +356,7 @@ class AgingDistributionView(APIView):
             {
                 "bucket":        field,
                 "label":         label,
-                "total":        float(totals[field] or 0),
+                "total":         float(totals[field] or 0),
                 "percentage":    round(
                     float(totals[field] or 0) / grand_total * 100, 2
                 ) if grand_total else 0,
@@ -265,10 +373,7 @@ class AgingDistributionView(APIView):
 
 
 class AgingReportDatesView(APIView):
-    """
-    GET /api/aging/dates/
-    Returns available report dates for the date picker in the UI.
-    """
+    """GET /api/aging/dates/"""
 
     permission_classes = [IsAuthenticated]
 
