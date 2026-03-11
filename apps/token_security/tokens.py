@@ -14,7 +14,7 @@ class CustomAccessToken(AccessToken):
         - user_id       : identifiant unique de l'utilisateur
         - role          : admin | manager | agent
         - permissions   : liste des permissions accordées
-        - branch_id     : identifiant de la succursale assignée
+        - company_id    : identifiant de la compagnie assignée
         - token_version : version pour invalider tous les tokens après changement de mot de passe
         - device_fp     : hash de l'empreinte de l'appareil
         - ip_hash       : hash de l'adresse IP de connexion
@@ -35,8 +35,8 @@ class CustomAccessToken(AccessToken):
         token["permissions"] = user.permissions_list
         token["token_version"] = user.token_version
 
-        # Informations de succursale (None si admin sans branche assignée)
-        token["branch_id"] = str(user.branch_id) if user.branch_id else None
+        # Informations de compagnie (None si utilisateur sans compagnie assignée)
+        token["company_id"] = str(user.company_id) if user.company_id else None
 
         # Empreinte de sécurité (hashée pour ne pas exposer les données brutes)
         token["device_fp"] = cls._hash_value(device_fingerprint)

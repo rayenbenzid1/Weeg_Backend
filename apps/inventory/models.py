@@ -1,19 +1,14 @@
 import uuid
+from django.conf import settings
 from django.db import models
 
 
 class InventorySnapshot(models.Model):
     """
-    Represents a horizontal inventory record imported from the Excel file
-    (جرد_افقي_نهاية_السنة).
+    One record per imported Excel inventory file (جرد).
 
-    One row per product, storing stock quantities and values
-    broken down by branch. This is a point-in-time snapshot,
-    tagged with a snapshot_date (typically end of year).
-
-    The branch quantities/values are stored as flat fields rather than
-    separate rows to preserve the original horizontal Excel structure and
-    allow fast cross-branch comparison queries.
+    Fully autonomous — no FK to companies_company, no FK to branches_branch.
+    company_name and branch names are stored as plain text.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -21,120 +16,115 @@ class InventorySnapshot(models.Model):
     company = models.ForeignKey(
         "companies.Company",
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="inventory_snapshots",
         verbose_name="Company",
     )
-
-    product = models.ForeignKey(
-        "products.Product",
-        on_delete=models.CASCADE,
-        related_name="inventory_snapshots",
-        verbose_name="Product",
+    company_name = models.CharField(
+        max_length=200,
+        verbose_name="Company Name",
+        help_text="Name of the company that owns this inventory snapshot.",
     )
-
+    inventory_year = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Inventory Year",
+        help_text="4-digit fiscal year extracted from the uploaded filename.",
+    )
+    label = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name="Label",
+        help_text="Optional human-readable label (e.g. 'Inventaire 2025 T1').",
+    )
     snapshot_date = models.DateField(
+        null=True,
+        blank=True,
         verbose_name="Snapshot Date",
-        help_text="Date of this inventory snapshot (e.g. 2025-12-31).",
     )
+    fiscal_year = models.CharField(
+        max_length=10,
+        blank=True,
+        default="",
+        verbose_name="Fiscal Year",
+    )
+    source_file = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name="Source File",
+    )
+    notes = models.TextField(blank=True, default="", verbose_name="Notes")
 
-    # ── Per-branch quantities ─────────────────────────────────────────────────
-
-    qty_alkarimia = models.DecimalField(
-        max_digits=14, decimal_places=4,
-        default=0,
-        verbose_name="Qty — Al-Karimia Branch",
+    uploaded_at = models.DateTimeField(auto_now_add=True, verbose_name="Uploaded At")
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="inventory_snapshots",
+        verbose_name="Uploaded By",
     )
-    qty_benghazi = models.DecimalField(
-        max_digits=14, decimal_places=4,
-        default=0,
-        verbose_name="Qty — Benghazi Warehouse",
-    )
-    qty_mazraa = models.DecimalField(
-        max_digits=14, decimal_places=4,
-        default=0,
-        verbose_name="Qty — Al-Mazraa Warehouse",
-    )
-    qty_dahmani = models.DecimalField(
-        max_digits=14, decimal_places=4,
-        default=0,
-        verbose_name="Qty — Dahmani Showroom",
-    )
-    qty_janzour = models.DecimalField(
-        max_digits=14, decimal_places=4,
-        default=0,
-        verbose_name="Qty — Janzour Showroom",
-    )
-    qty_misrata = models.DecimalField(
-        max_digits=14, decimal_places=4,
-        default=0,
-        verbose_name="Qty — Misrata Branch",
-    )
-
-    # ── Per-branch values (LYD) ───────────────────────────────────────────────
-
-    value_mazraa = models.DecimalField(
-        max_digits=18, decimal_places=4,
-        default=0,
-        verbose_name="Value — Al-Mazraa Warehouse",
-    )
-    value_dahmani = models.DecimalField(
-        max_digits=18, decimal_places=4,
-        default=0,
-        verbose_name="Value — Dahmani Showroom",
-    )
-    value_janzour = models.DecimalField(
-        max_digits=18, decimal_places=4,
-        default=0,
-        verbose_name="Value — Janzour Showroom",
-    )
-    value_alkarimia = models.DecimalField(
-        max_digits=18, decimal_places=4,
-        default=0,
-        verbose_name="Value — Al-Karimia Branch",
-    )
-    value_misrata = models.DecimalField(
-        max_digits=18, decimal_places=4,
-        default=0,
-        verbose_name="Value — Misrata Branch",
-    )
-
-    # ── Totals ────────────────────────────────────────────────────────────────
-
-    total_qty = models.DecimalField(
-        max_digits=14, decimal_places=4,
-        default=0,
-        verbose_name="Total Quantity",
-    )
-    cost_price = models.DecimalField(
-        max_digits=14, decimal_places=4,
-        default=0,
-        verbose_name="Cost Price (LYD)",
-        help_text="Company cost price per unit.",
-    )
-    total_value = models.DecimalField(
-        max_digits=18, decimal_places=4,
-        default=0,
-        verbose_name="Total Value (LYD)",
-    )
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "inventory_snapshot"
         verbose_name = "Inventory Snapshot"
         verbose_name_plural = "Inventory Snapshots"
-        ordering = ["-snapshot_date", "product__category", "product__product_name"]
-        unique_together = [("company", "product", "snapshot_date")]
+        ordering = ["-uploaded_at"]
 
     def __str__(self):
-        return f"{self.product} — {self.snapshot_date} ({self.total_qty} units)"
+        return f"{self.company_name} — {self.label or self.source_file} ({self.uploaded_at.date()})"
 
-    @property
-    def total_branches_value(self):
-        """Sum of all branch values."""
-        return (
-            self.value_mazraa + self.value_dahmani +
-            self.value_janzour + self.value_alkarimia +
-            self.value_misrata
-        )
+
+class InventorySnapshotLine(models.Model):
+    """
+    One row per (product × branch) within an InventorySnapshot.
+
+    Produced by melting a horizontal Excel row into vertical lines.
+    branch_name is plain text — no FK to branches_branch.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    snapshot = models.ForeignKey(
+        InventorySnapshot,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name="Snapshot",
+    )
+
+    product_category = models.CharField(
+        max_length=200, blank=True, default="", verbose_name="Category",
+    )
+    product_code = models.CharField(max_length=100, verbose_name="Product Code")
+    product_name = models.CharField(
+        max_length=500, blank=True, default="", verbose_name="Product Name",
+    )
+
+    branch_name = models.CharField(
+        max_length=200,
+        verbose_name="Branch Name",
+        help_text="Plain-text branch name extracted from the Excel header. No FK.",
+    )
+
+    quantity = models.DecimalField(
+        max_digits=14, decimal_places=4, default=0, verbose_name="Quantity",
+    )
+    unit_cost = models.DecimalField(
+        max_digits=14, decimal_places=4, default=0, verbose_name="Unit Cost",
+    )
+    line_value = models.DecimalField(
+        max_digits=18, decimal_places=4, default=0, verbose_name="Line Value",
+    )
+
+    class Meta:
+        db_table = "inventory_snapshot_line"
+        verbose_name = "Inventory Snapshot Line"
+        verbose_name_plural = "Inventory Snapshot Lines"
+        ordering = ["product_code", "branch_name"]
+        unique_together = [("snapshot", "product_code", "branch_name")]
+
+    def __str__(self):
+        return f"{self.product_code} | {self.branch_name} | qty={self.quantity}"

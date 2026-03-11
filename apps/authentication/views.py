@@ -171,14 +171,6 @@ class CreateAgentView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # Optional branch check (if provided, must belong to the manager)
-        branch = serializer.validated_data.get("branch")
-        if branch and request.user.branch and branch.id != request.user.branch.id:
-            return Response(
-                {"error": "You can only create agents for your own branch."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         temporary_password = request.data.get("temporary_password")
         agent = UserService.create_agent(
             validated_data=serializer.validated_data,
@@ -258,17 +250,17 @@ class AgentDetailView(APIView):
     PATCH  /api/auth/agents/{id}/  → Update an agent (manager only)
     DELETE /api/auth/agents/{id}/  → Delete an agent (SCRUM-43)
 
-    The manager can only access agents from their own branch.
+    The manager can only access agents from their own company.
     """
     permission_classes = [IsAuthenticated, IsManager]
 
     def _get_agent(self, agent_id, manager):
-        """Retrieve the agent by checking it belongs to the manager's branch."""
+        """Retrieve the agent by checking it belongs to the manager's company."""
         try:
             return User.objects.get(
                 id=agent_id,
                 role=User.Role.AGENT,
-                branch=manager.branch,
+                company=manager.company,
             )
         except User.DoesNotExist:
             return None
@@ -367,7 +359,7 @@ class UpdateUserPermissionsView(APIView):
 
         # ✅ Manager can only modify permissions of THEIR own agents
         if request.user.is_manager:
-            if target_user.role != User.Role.AGENT or target_user.branch != request.user.branch:
+            if target_user.role != User.Role.AGENT or target_user.company != request.user.company:
                 return Response(
                     {"error": "You can only modify permissions of your agents."},
                     status=status.HTTP_403_FORBIDDEN,

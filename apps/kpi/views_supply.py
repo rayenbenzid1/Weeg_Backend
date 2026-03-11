@@ -4,7 +4,7 @@
 # v4: Source Breakdown (International vs Local) removed entirely.
 #
 # FIX 3: Branches resolved dynamically via FK (branch__name from
-#        the Branch model). Falls back to BRANCH_MAP then raw name.
+#        the Branch model).
 #
 # Query params:
 #   year     (str)  — e.g. "2025" or "all"
@@ -20,32 +20,15 @@ from rest_framework.response import Response
 
 from apps.transactions.models import MaterialMovement
 
-# ── Fallback map for movements where branch FK is NULL ───────────
-BRANCH_MAP = {
-    'مخزن صالة عرض الكريمية':            'Al-Karimia',
-    'مخزن صالة عرض الدهماني':            'Dahmani',
-    'مخزن صالة عرض جنزور':               'Janzour',
-    'مخزن صالة عرض مصراتة':              'Misrata',
-    'مخزن المزرعة':                       'Al-Mazraa',
-    'مخزن بنغازي':                        'Benghazi',
-    'مخزن الأنظمة المتكاملة - الكريمية': 'Integrated (Karimia)',
-}
-
-
-def resolve_branch(fk_name: str | None, raw_name: str | None) -> str:
+def resolve_branch(fk_name: str | None) -> str:
     """
     Priority order:
     1. Branch FK name  (Branch.name — set at import time)
-    2. BRANCH_MAP fallback (for old rows where FK was not filled)
-    3. Raw branch_name from Excel
-    4. 'Unknown'
+    2. 'Unknown'
     """
     fk  = (fk_name  or '').strip()
-    raw = (raw_name or '').strip()
     if fk:
         return fk
-    if raw:
-        return BRANCH_MAP.get(raw, raw)
     return 'Unknown'
 
 
@@ -63,7 +46,6 @@ def supply_kpi_view(request):
     rows = qs.values(
         'movement_date',
         'branch__name',    # FK-resolved branch name
-        'branch_name',     # fallback if FK not set
         'customer_name',   # supplier name
         'category',
         'material_name',
@@ -90,7 +72,7 @@ def supply_kpi_view(request):
             except Exception:
                 continue
 
-        branch   = resolve_branch(r.get('branch__name'), r.get('branch_name'))
+        branch   = resolve_branch(r.get('branch__name'))
         supplier = (r.get('customer_name') or '').strip() or 'Unknown'
         category = (r.get('category')      or '').strip()
         material = (r.get('material_name') or '').strip()

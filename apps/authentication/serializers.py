@@ -18,7 +18,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
     Used by GET /api/users/profile/
     """
     full_name = serializers.CharField(read_only=True)
-    branch_name = serializers.CharField(source="branch.name", read_only=True, default=None)
     company_name = serializers.CharField(read_only=True)
 
     class Meta:
@@ -33,8 +32,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "role",
             "status",
             "permissions_list",
-            "branch",
-            "branch_name",
             "company",
             "company_name",
             "must_change_password",
@@ -43,7 +40,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id", "email", "role", "status", "permissions_list",
-            "branch", "branch_name", "company", "company_name",
+            "company", "company_name",
             "full_name", "must_change_password", "is_verified", "created_at",
         ]
 
@@ -53,7 +50,6 @@ class UserListSerializer(serializers.ModelSerializer):
     Simplified display of a user in a list view.
     """
     full_name = serializers.CharField(read_only=True)
-    branch_name = serializers.CharField(source="branch.name", read_only=True, default=None)
     company_name = serializers.CharField(read_only=True)
     company_industry    = serializers.CharField(source="company.industry",    read_only=True, default=None, allow_null=True)
     company_country     = serializers.CharField(source="company.country",     read_only=True, default=None, allow_null=True)
@@ -69,7 +65,6 @@ class UserListSerializer(serializers.ModelSerializer):
             "phone_number",
             "role",
             "status",
-            "branch_name",
             "company",
             "company_name",
             "company_industry",     # ← NEW
@@ -288,7 +283,6 @@ class CreateAgentSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "phone_number",
-            "branch",
             "permissions_list",
             "temporary_password",
         ]

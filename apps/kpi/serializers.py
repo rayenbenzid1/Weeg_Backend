@@ -5,7 +5,6 @@ DRF serializers for the Credit KPI API response.
 These mirror the TypeScript interfaces in the frontend.
 """
 from rest_framework import serializers
-from .models import KPISnapshot, RiskyCustomerSnapshot
 
 
 # ── Nested serializers ────────────────────────────────────────────────────────
@@ -83,17 +82,3 @@ class CreditKPIResponseSerializer(serializers.Serializer):
     top5_risky_customers = RiskyCustomerSerializer(many=True)
     bucket_distribution  = BucketDistributionItemSerializer(many=True)
     summary              = SummarySerializer()
-
-
-# ── Model serializers (for admin / caching layer) ─────────────────────────────
-
-class KPISnapshotSerializer(serializers.ModelSerializer):
-    class Meta:
-        model  = KPISnapshot
-        fields = "__all__"
-
-
-class RiskyCustomerSnapshotSerializer(serializers.ModelSerializer):
-    class Meta:
-        model  = RiskyCustomerSnapshot
-        fields = "__all__"

@@ -68,11 +68,6 @@ class MaterialMovement(models.Model):
 
     # ── Branch & customer ─────────────────────────────────────────────────────
 
-    branch_name = models.CharField(
-        max_length=255, blank=True, null=True,
-        verbose_name="Branch Name",
-        help_text="Raw branch name from Excel (resolved to Branch FK when possible).",
-    )
     branch = models.ForeignKey(
         "branches.Branch",
         on_delete=models.SET_NULL,
@@ -110,5 +105,5 @@ class MaterialMovement(models.Model):
     def __str__(self):
         return (
             f"[{self.movement_type}] {self.material_name} "
-            f"({self.movement_date}) — {self.branch_name}"
+            f"({self.movement_date}) — {self.branch.name if self.branch else 'No branch'}"
         )

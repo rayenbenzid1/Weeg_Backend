@@ -18,7 +18,7 @@ class CustomerListView(APIView):
         Query params:
             search=<str>       — name or account_code
             area_code=<str>    — exact match
-            ordering=<field>   — customer_name | account_code | created_at (prefix - for DESC)
+            ordering=<field>   — name | account_code | created_at (prefix - for DESC)
             page=<int>
             page_size=<int>    — default 50, max 200
 
@@ -27,7 +27,7 @@ class CustomerListView(APIView):
 
     permission_classes = [IsAuthenticated]
     ALLOWED_ORDERINGS = {
-        "customer_name", "-customer_name",
+        "name", "-name",
         "account_code", "-account_code",
         "created_at", "-created_at",
     }
@@ -38,7 +38,7 @@ class CustomerListView(APIView):
         search = request.query_params.get("search", "").strip()
         if search:
             qs = qs.filter(
-                Q(customer_name__icontains=search) |
+                Q(name__icontains=search) |
                 Q(account_code__icontains=search)
             )
 
@@ -46,7 +46,7 @@ class CustomerListView(APIView):
         if area_code:
             qs = qs.filter(area_code=area_code)
 
-        ordering = request.query_params.get("ordering", "customer_name")
+        ordering = request.query_params.get("ordering", "name")
         if ordering in self.ALLOWED_ORDERINGS:
             qs = qs.order_by(ordering)
 
@@ -126,7 +126,7 @@ class CustomerDetailView(APIView):
         customer = self._get_customer(customer_id, request.user.company)
         if not customer:
             return Response({"error": "Customer not found."}, status=status.HTTP_404_NOT_FOUND)
-        name = customer.customer_name
+        name = customer.name
         customer.delete()
         return Response({"message": f"Customer '{name}' deleted."}, status=status.HTTP_200_OK)
 
@@ -184,7 +184,7 @@ class CustomerMovementsView(APIView):
         return Response({
             "customer": {
                 "id": str(customer.id),
-                "name": customer.customer_name,
+                "name": customer.name,
                 "account_code": customer.account_code,
             },
             "count": total_count,
@@ -219,12 +219,12 @@ class CustomerAgingView(APIView):
         records = AgingReceivable.objects.filter(
             company=request.user.company,
             customer=customer,
-        ).order_by("-report_date")
+        ).order_by("-created_at")
 
         return Response({
             "customer": {
                 "id": str(customer.id),
-                "name": customer.customer_name,
+                "name": customer.name,
                 "account_code": customer.account_code,
             },
             "aging_records": AgingReceivableSerializer(records, many=True).data,

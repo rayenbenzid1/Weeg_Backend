@@ -48,13 +48,13 @@ class CreditKPIView(APIView):
     Returns all 5 credit KPIs + top 5 risky customers.
 
     Query params:
-        report_date=YYYY-MM-DD  — defaults to latest aging report
+        report_date=YYYY-MM-DD  — ignored (kept for backward compatibility)
     """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from apps.aging.models import AgingReceivable
+        from apps.aging.models import AgingReceivable, AgingSnapshot
         from apps.customers.models import Customer
         from apps.transactions.models import MaterialMovement
 
@@ -65,22 +65,12 @@ class CreditKPIView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # ── Resolve report_date ───────────────────────────────────────────────
-        report_date = request.query_params.get("report_date")
-        if not report_date:
-            latest = (
-                AgingReceivable.objects
-                .filter(company=company)
-                .order_by("-report_date")
-                .values_list("report_date", flat=True)
-                .first()
-            )
-            report_date = str(latest) if latest else None
-
         # ── Base querysets ────────────────────────────────────────────────────
-        aging_qs = AgingReceivable.objects.filter(company=company)
-        if report_date:
-            aging_qs = aging_qs.filter(report_date=report_date)
+        latest_snap = AgingSnapshot.objects.filter(company=company).order_by("-uploaded_at").first()
+        aging_qs = (
+            AgingReceivable.objects.filter(snapshot=latest_snap)
+            if latest_snap else AgingReceivable.objects.none()
+        )
 
         # Exclude pure cash accounts (account_code 1141001 = قطاعي / نقدي)
         credit_aging_qs = aging_qs.exclude(
@@ -281,7 +271,7 @@ class CreditKPIView(APIView):
         ]
 
         return Response({
-            "report_date": report_date,
+            "report_date": None,
             "kpis": {
                 "taux_clients_credit": {
                     "value": taux_clients_credit,

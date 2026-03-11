@@ -20,17 +20,6 @@ class ImportUploadSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional: force file type instead of auto-detection"
     )
-    snapshot_date = serializers.DateField(
-        required=False,
-        allow_null=True,
-        help_text="Snapshot/reference date (mainly for inventory/aging)"
-    )
-    report_date = serializers.DateField(
-        required=False,
-        allow_null=True,
-        help_text="Report generation date (mainly for aging receivables)"
-    )
-
     def validate_file(self, value):
         """
         Basic file validation before processing.

@@ -22,8 +22,7 @@ PURCHASE_TYPES        = ["ف شراء"]
 RETURN_SALE_TYPES     = ["مردودات بيع"]
 RETURN_PURCHASE_TYPES = ["مردود شراء"]
 
-# Maps raw Arabic branch_name (stored in DB) → English display name
-# Must align with the English names used in InventoryBranchSummaryView
+# Maps Arabic branch names to English display labels.
 BRANCH_NAME_MAP = {
     "مخزن صالة عرض الكريمية":          "Al-Karimia",
     "مخزن صالة عرض الدهماني":          "Dahmani",
@@ -46,7 +45,7 @@ class TransactionListView(APIView):
 
     Query params:
         movement_type=<arabic_value>   — exact match on raw Arabic label
-        branch=<str>                   — branch_name icontains
+        branch=<str>                   — branch.name icontains
         search=<str>                   — material_code / material_name / customer_name
         date_from=YYYY-MM-DD
         date_to=YYYY-MM-DD
@@ -74,7 +73,7 @@ class TransactionListView(APIView):
 
         branch = request.query_params.get("branch", "").strip()
         if branch:
-            qs = qs.filter(branch_name__icontains=branch)
+            qs = qs.filter(branch__name__icontains=branch)
 
         search = request.query_params.get("search", "").strip()
         if search:
@@ -182,9 +181,9 @@ class TransactionBranchesView(APIView):
         raw_branches = (
             MaterialMovement.objects
             .filter(company=request.user.company)
-            .exclude(branch_name__isnull=True)
-            .exclude(branch_name="")
-            .values_list("branch_name", flat=True)
+            .exclude(branch__name__isnull=True)
+            .exclude(branch__name="")
+            .values_list("branch__name", flat=True)
             .distinct()
         )
         english_branches = sorted({_en_branch(b) for b in raw_branches})
@@ -330,7 +329,7 @@ class TransactionBranchBreakdownView(APIView):
         value_field = "total_in" if movement_type in self.PURCHASE_TYPES else "total_out"
 
         breakdown = (
-            qs.values("branch_name")
+            qs.values("branch__name")
             .annotate(count=Count("id"), total=Sum(value_field))
             .order_by("-total")
         )
@@ -339,7 +338,7 @@ class TransactionBranchBreakdownView(APIView):
             "movement_type": movement_type,
             "branches": [
                 {
-                    "branch": _en_branch(row["branch_name"]),
+                    "branch": _en_branch(row["branch__name"]),
                     "count":  row["count"],
                     "total":  float(row["total"] or 0),
                 }
@@ -384,9 +383,9 @@ class TransactionBranchMonthlyView(APIView):
 
         rows = (
             qs.annotate(month=TruncMonth("movement_date"))
-            .values("month", "branch_name")
+            .values("month", "branch__name")
             .annotate(total=Sum("total_out"), count=Count("id"))
-            .order_by("month", "branch_name")
+            .order_by("month", "branch__name")
         )
 
         pivot = {}
@@ -394,7 +393,7 @@ class TransactionBranchMonthlyView(APIView):
 
         for row in rows:
             key = row["month"].strftime("%Y-%m")
-            branch = _en_branch(row["branch_name"])
+            branch = _en_branch(row["branch__name"])
             branches.add(branch)
             if key not in pivot:
                 pivot[key] = {

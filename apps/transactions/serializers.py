@@ -5,6 +5,8 @@ from .models import MaterialMovement
 class MovementListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for list views."""
 
+    branch_name_resolved = serializers.CharField(source="branch.name", read_only=True, allow_null=True)
+
     class Meta:
         model = MaterialMovement
         fields = [
@@ -14,7 +16,7 @@ class MovementListSerializer(serializers.ModelSerializer):
             "qty_in", "qty_out",
             "total_in", "total_out",
             "balance_price",
-            "branch_name", "customer_name",
+            "branch", "branch_name_resolved", "customer_name",
         ]
         read_only_fields = fields
 
@@ -42,7 +44,7 @@ class MovementDetailSerializer(serializers.ModelSerializer):
             "qty_out", "price_out", "total_out",
             "balance_price",
             # Branch
-            "branch", "branch_name", "branch_name_resolved",
+            "branch", "branch_name_resolved",
             # Customer
             "customer", "customer_name", "customer_name_resolved", "customer_account_code",
             # Metadata

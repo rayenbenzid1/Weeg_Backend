@@ -6,13 +6,13 @@ from .models import MaterialMovement
 class MaterialMovementAdmin(admin.ModelAdmin):
     list_display = [
         "material_code", "material_name", "movement_type",
-        "movement_date", "branch_name", "qty_in", "qty_out",
+        "movement_date", "branch", "qty_in", "qty_out",
         "total_in", "total_out", "company",
     ]
     list_filter = ["company", "movement_type", "movement_date"]
     search_fields = [
         "material_code", "material_name", "lab_code",
-        "branch_name", "customer_name", "movement_type",
+        "branch__name", "customer_name", "movement_type",
     ]
     readonly_fields = ["id", "created_at"]
     ordering = ["-movement_date", "material_code"]
@@ -39,7 +39,7 @@ class MaterialMovementAdmin(admin.ModelAdmin):
             "fields": ("balance_price",),
         }),
         ("Branch / Customer", {
-            "fields": ("branch", "branch_name", "customer", "customer_name"),
+            "fields": ("branch", "customer", "customer_name"),
         }),
         ("Metadata", {
             "fields": ("created_at",),

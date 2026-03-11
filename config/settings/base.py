@@ -128,6 +128,7 @@ DATABASES = {
         "PORT": env("DB_PORT", default="5432"),
         "OPTIONS": {
             "connect_timeout": 10,
+            "options": f"-c search_path={env('DB_SCHEMA', default=env('DB_USER', default='public'))},public",
         },
     }
 }

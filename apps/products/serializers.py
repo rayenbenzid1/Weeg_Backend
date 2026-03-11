@@ -35,11 +35,11 @@ class ProductDetailSerializer(serializers.ModelSerializer):
         return obj.movements.count()
 
     def get_latest_snapshot_date(self, obj):
-        snap = obj.inventory_snapshots.order_by("-snapshot_date").first()
-        return snap.snapshot_date if snap else None
+        snap = obj.inventory_snapshots.order_by("-created_at").first()
+        return snap.created_at.date() if snap else None
 
     def get_total_stock(self, obj):
-        snap = obj.inventory_snapshots.order_by("-snapshot_date").first()
+        snap = obj.inventory_snapshots.order_by("-created_at").first()
         return float(snap.total_qty) if snap else None
 
 

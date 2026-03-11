@@ -37,7 +37,6 @@ class StockKPIView(APIView):
     GET /api/kpi/stock/
 
     Query params:
-        snapshot_date=YYYY-MM-DD       — inventory snapshot (default: latest)
         year=<int>                     — year for sales data (default: snapshot year)
         low_rotation_threshold=<float> — rotation threshold (default: 0.5)
     """
@@ -50,21 +49,7 @@ class StockKPIView(APIView):
 
         company = request.user.company
 
-        # ── Resolve snapshot date ────────────────────────────────────────────
-        snapshot_date_param = request.query_params.get("snapshot_date")
-        if snapshot_date_param:
-            snapshot_date = date.fromisoformat(snapshot_date_param)
-        else:
-            latest = (
-                InventorySnapshot.objects
-                .filter(company=company)
-                .order_by("-snapshot_date")
-                .values_list("snapshot_date", flat=True)
-                .first()
-            )
-            snapshot_date = latest if latest else date.today()
-
-        year = int(request.query_params.get("year", snapshot_date.year))
+        year = int(request.query_params.get("year", date.today().year))
         rotation_threshold = float(
             request.query_params.get("low_rotation_threshold", LOW_ROTATION_THRESHOLD)
         )
@@ -76,7 +61,6 @@ class StockKPIView(APIView):
         # ── Inventory snapshot ───────────────────────────────────────────────
         inv_qs = InventorySnapshot.objects.filter(
             company=company,
-            snapshot_date=snapshot_date,
         ).select_related("product")
 
         # ── Sales grouped by material_name (FIX: not material_code) ─────────
@@ -200,7 +184,7 @@ class StockKPIView(APIView):
         )
 
         return Response({
-            "snapshot_date": str(snapshot_date),
+            "snapshot_date": None,
             "year":          year,
             "period":        {"from": str(period_from), "to": str(period_to)},
             "stock_summary": {

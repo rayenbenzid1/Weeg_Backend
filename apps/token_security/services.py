@@ -50,7 +50,7 @@ class TokenService:
         access_token["role"] = user.role
         access_token["permissions"] = user.permissions_list
         access_token["token_version"] = user.token_version
-        access_token["branch_id"] = str(user.branch_id) if user.branch_id else None
+        access_token["company_id"] = str(user.company_id) if user.company_id else None
 
         # Création de la session active en base de données
         session = ActiveSession.objects.create(
@@ -124,7 +124,7 @@ class TokenService:
         new_access_token["role"] = user.role
         new_access_token["permissions"] = user.permissions_list
         new_access_token["token_version"] = user.token_version
-        new_access_token["branch_id"] = str(user.branch_id) if user.branch_id else None
+        new_access_token["company_id"] = str(user.company_id) if user.company_id else None
 
         # Enregistrement de la rotation
         RefreshTokenRotation.objects.create(

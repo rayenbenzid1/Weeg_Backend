@@ -8,7 +8,7 @@ class CustomerListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
         fields = [
-            "id", "customer_name", "account_code",
+            "id", "name", "account_code",
             "area_code", "phone", "email",
         ]
         read_only_fields = fields
@@ -24,7 +24,7 @@ class CustomerDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
         fields = [
-            "id", "company", "customer_name", "account_code",
+            "id", "company", "name", "account_code",
             "address", "area_code", "phone", "email",
             "movement_count", "latest_aging_total", "latest_aging_risk",
             "created_at", "updated_at",
@@ -35,11 +35,11 @@ class CustomerDetailSerializer(serializers.ModelSerializer):
         return obj.movements.count()
 
     def get_latest_aging_total(self, obj):
-        latest = obj.aging_records.order_by("-report_date").first()
+        latest = obj.aging_records.order_by("-created_at").first()
         return float(latest.total) if latest else None
 
     def get_latest_aging_risk(self, obj):
-        latest = obj.aging_records.order_by("-report_date").first()
+        latest = obj.aging_records.order_by("-created_at").first()
         return latest.risk_score if latest else None
 
 
@@ -49,11 +49,11 @@ class CustomerWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
         fields = [
-            "customer_name", "account_code",
+            "name", "account_code",
             "address", "area_code", "phone", "email",
         ]
 
-    def validate_customer_name(self, value):
+    def validate_name(self, value):
         value = value.strip()
         if not value:
             raise serializers.ValidationError("Customer name cannot be empty.")

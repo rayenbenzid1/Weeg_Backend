@@ -1,255 +1,280 @@
-from django.db.models import Q, Sum
+from django.db.models import Count, Q, Sum
+from django.db.models.functions import TruncDate
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import InventorySnapshot
+from .models import InventorySnapshot, InventorySnapshotLine
 from .serializers import (
     InventorySnapshotSerializer,
     InventorySnapshotListSerializer,
+    InventorySnapshotLineSerializer,
 )
+
+
+def _get_company_name(request):
+    """
+    Returns (company_name: str, error: Response|None).
+    If the user has no associated company (admin without company), returns an
+    error response so callers can return it immediately.
+    """
+    if not request.user.company:
+        return None, Response(
+            {"error": "Your account is not linked to a company."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return request.user.company.name, None
+
+
+def _safe_int(value, default: int, min_val: int, max_val: int) -> int:
+    try:
+        return max(min_val, min(max_val, int(value)))
+    except (TypeError, ValueError):
+        return default
 
 
 class InventoryListView(APIView):
     """
     GET /api/inventory/
-    Returns the inventory snapshot list for the company.
-
-    Query params:
-        snapshot_date=YYYY-MM-DD   — exact date filter (required or uses latest)
-        category=<str>             — filter by product category
-        search=<str>               — filter by product name or code
-        ordering=product_name | total_qty | total_value | category
-        page=<int>   page_size=<int>  — default 50, max 200
+    Returns a paginated list of InventorySnapshot sessions for the company.
+    Each item contains aggregated line_count and total_lines_value.
     """
 
     permission_classes = [IsAuthenticated]
-    ALLOWED_ORDERINGS = {
-        "product__product_name", "-product__product_name",
-        "product__category", "-product__category",
-        "total_qty", "-total_qty",
-        "total_value", "-total_value",
-    }
 
     def get(self, request):
-        qs = InventorySnapshot.objects.filter(
-            company=request.user.company
-        ).select_related("product")
+        company_name, err = _get_company_name(request)
+        if err:
+            return err
 
-        # If no date specified, default to the most recent snapshot date
-        snapshot_date = request.query_params.get("snapshot_date")
-        if snapshot_date:
-            qs = qs.filter(snapshot_date=snapshot_date)
-        else:
-            latest = (
-                InventorySnapshot.objects
-                .filter(company=request.user.company)
-                .order_by("-snapshot_date")
-                .values_list("snapshot_date", flat=True)
-                .first()
+        qs = (
+            InventorySnapshot.objects
+            .filter(company_name=company_name)
+            .annotate(
+                line_count=Count("lines"),
+                total_lines_value=Sum("lines__line_value"),
             )
-            if latest:
-                qs = qs.filter(snapshot_date=latest)
-                snapshot_date = str(latest)
-
-        category = request.query_params.get("category", "").strip()
-        if category:
-            qs = qs.filter(product__category__icontains=category)
+            .order_by("-uploaded_at")
+        )
 
         search = request.query_params.get("search", "").strip()
         if search:
             qs = qs.filter(
-                Q(product__product_name__icontains=search) |
-                Q(product__product_code__icontains=search)
+                Q(label__icontains=search) | Q(source_file__icontains=search)
             )
 
-        ordering = request.query_params.get("ordering", "product__product_name")
-        if ordering in self.ALLOWED_ORDERINGS:
-            qs = qs.order_by(ordering)
-
-        # Summary totals for the filtered set
-        totals = qs.aggregate(
-            grand_total_qty=Sum("total_qty"),
-            grand_total_value=Sum("total_value"),
-        )
-
-        total_count = qs.count()
-        page = max(1, int(request.query_params.get("page", 1)))
-        page_size = min(200, max(1, int(request.query_params.get("page_size", 50))))
-        start = (page - 1) * page_size
-        qs_page = qs[start: start + page_size]
+        total = qs.count()
+        page      = _safe_int(request.query_params.get("page", 1),      default=1,   min_val=1,  max_val=10_000)
+        page_size = _safe_int(request.query_params.get("page_size", 20), default=20,  min_val=1,  max_val=100)
+        qs_page = qs[(page - 1) * page_size: page * page_size]
 
         return Response({
-            "snapshot_date": snapshot_date,
-            "count": total_count,
+            "count": total,
             "page": page,
             "page_size": page_size,
-            "total_pages": max(1, (total_count + page_size - 1) // page_size),
-            "totals": {
-                "grand_total_qty": float(totals["grand_total_qty"] or 0),
-                "grand_total_value": float(totals["grand_total_value"] or 0),
-            },
+            "total_pages": max(1, (total + page_size - 1) // page_size),
             "items": InventorySnapshotListSerializer(qs_page, many=True).data,
         })
 
 
 class InventoryDetailView(APIView):
     """
-    GET /api/inventory/{id}/
-    Returns full snapshot detail including all branch breakdowns.
+    GET /api/inventory/<uuid:snapshot_id>/
+    Returns snapshot metadata + branch list. Lines are in a separate endpoint.
     """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request, snapshot_id):
+        company_name, err = _get_company_name(request)
+        if err:
+            return err
         try:
-            snapshot = InventorySnapshot.objects.select_related("product").get(
-                id=snapshot_id,
-                company=request.user.company,
+            snapshot = (
+                InventorySnapshot.objects
+                .annotate(
+                    line_count=Count("lines"),
+                    total_lines_value=Sum("lines__line_value"),
+                )
+                .get(id=snapshot_id, company_name=company_name)
             )
         except InventorySnapshot.DoesNotExist:
             return Response({"error": "Snapshot not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(InventorySnapshotSerializer(snapshot).data)
 
+    def delete(self, request, snapshot_id):
+        company_name, err = _get_company_name(request)
+        if err:
+            return err
+        try:
+            snapshot = InventorySnapshot.objects.get(
+                id=snapshot_id,
+                company_name=company_name,
+            )
+        except InventorySnapshot.DoesNotExist:
+            return Response({"error": "Snapshot not found."}, status=status.HTTP_404_NOT_FOUND)
+        snapshot.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class InventorySnapshotLinesView(APIView):
+    """
+    GET /api/inventory/<uuid:snapshot_id>/lines/
+    Returns paginated InventorySnapshotLine rows for one snapshot.
+    Supports ?branch=, ?search=, ?page=, ?page_size=
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, snapshot_id):
+        company_name, err = _get_company_name(request)
+        if err:
+            return err
+        try:
+            snapshot = InventorySnapshot.objects.get(
+                id=snapshot_id,
+                company_name=company_name,
+            )
+        except InventorySnapshot.DoesNotExist:
+            return Response({"error": "Snapshot not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        qs = snapshot.lines.all()
+
+        branch = request.query_params.get("branch", "").strip()
+        if branch:
+            qs = qs.filter(branch_name__icontains=branch)
+
+        search = request.query_params.get("search", "").strip()
+        if search:
+            qs = qs.filter(
+                Q(product_name__icontains=search) | Q(product_code__icontains=search)
+            )
+
+        totals = qs.aggregate(
+            grand_total_qty=Sum("quantity"),
+            grand_total_value=Sum("line_value"),
+        )
+
+        total = qs.count()
+        page      = _safe_int(request.query_params.get("page", 1),       default=1,   min_val=1, max_val=10_000)
+        page_size = _safe_int(request.query_params.get("page_size", 100), default=100, min_val=1, max_val=500)
+        qs_page = qs[(page - 1) * page_size: page * page_size]
+
+        return Response({
+            "snapshot_id": str(snapshot_id),
+            "count": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": max(1, (total + page_size - 1) // page_size),
+            "totals": {
+                "grand_total_qty": float(totals["grand_total_qty"] or 0),
+                "grand_total_value": float(totals["grand_total_value"] or 0),
+            },
+            "lines": InventorySnapshotLineSerializer(qs_page, many=True).data,
+        })
+
 
 class InventoryBranchSummaryView(APIView):
     """
     GET /api/inventory/branch-summary/
-
-    Returns aggregated stock totals per branch for a given snapshot date.
-    Used to power the cross-branch comparison chart on the dashboard.
-
-    Query params:
-        snapshot_date=YYYY-MM-DD   — defaults to most recent date
-        category=<str>             — optional category filter
+    Aggregates quantity + value by branch_name.
+    Optional ?snapshot_id= to scope to a single import session.
     """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        qs = InventorySnapshot.objects.filter(company=request.user.company)
+        company_name, err = _get_company_name(request)
+        if err:
+            return err
 
-        snapshot_date = request.query_params.get("snapshot_date")
-        if snapshot_date:
-            qs = qs.filter(snapshot_date=snapshot_date)
-        else:
-            latest = (
-                InventorySnapshot.objects
-                .filter(company=request.user.company)
-                .order_by("-snapshot_date")
-                .values_list("snapshot_date", flat=True)
-                .first()
-            )
-            if latest:
-                qs = qs.filter(snapshot_date=latest)
-                snapshot_date = str(latest)
-
-        category = request.query_params.get("category", "").strip()
-        if category:
-            qs = qs.filter(product__category__icontains=category)
-
-        totals = qs.aggregate(
-            qty_alkarimia=Sum("qty_alkarimia"),
-            qty_benghazi=Sum("qty_benghazi"),
-            qty_mazraa=Sum("qty_mazraa"),
-            qty_dahmani=Sum("qty_dahmani"),
-            qty_janzour=Sum("qty_janzour"),
-            qty_misrata=Sum("qty_misrata"),
-            value_alkarimia=Sum("value_alkarimia"),
-            value_mazraa=Sum("value_mazraa"),
-            value_dahmani=Sum("value_dahmani"),
-            value_janzour=Sum("value_janzour"),
-            value_misrata=Sum("value_misrata"),
+        qs = InventorySnapshotLine.objects.filter(
+            snapshot__company_name=company_name,
         )
+        snapshot_id = request.query_params.get("snapshot_id", "").strip()
+        if snapshot_id:
+            qs = qs.filter(snapshot_id=snapshot_id)
 
-        def f(v):
-            return float(v or 0)
-
-        branches = [
-            {"branch": "Al-Karimia",  "total_qty": f(totals["qty_alkarimia"]),  "total_value": f(totals["value_alkarimia"])},
-            {"branch": "Benghazi",    "total_qty": f(totals["qty_benghazi"]),    "total_value": 0},
-            {"branch": "Al-Mazraa",   "total_qty": f(totals["qty_mazraa"]),      "total_value": f(totals["value_mazraa"])},
-            {"branch": "Dahmani",     "total_qty": f(totals["qty_dahmani"]),     "total_value": f(totals["value_dahmani"])},
-            {"branch": "Janzour",     "total_qty": f(totals["qty_janzour"]),     "total_value": f(totals["value_janzour"])},
-            {"branch": "Misrata",     "total_qty": f(totals["qty_misrata"]),     "total_value": f(totals["value_misrata"])},
-        ]
+        rows = (
+            qs.values("branch_name")
+            .annotate(
+                total_qty=Sum("quantity"),
+                total_value=Sum("line_value"),
+            )
+            .order_by("branch_name")
+        )
 
         return Response({
-            "snapshot_date": snapshot_date,
-            "branches": branches,
+            "branches": [
+                {
+                    "branch": r["branch_name"],
+                    "total_qty": float(r["total_qty"] or 0),
+                    "total_value": float(r["total_value"] or 0),
+                }
+                for r in rows
+            ],
         })
-
-
-class InventorySnapshotDatesView(APIView):
-    """
-    GET /api/inventory/dates/
-    Returns the list of available snapshot dates (for the date picker in the UI).
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        dates = (
-            InventorySnapshot.objects
-            .filter(company=request.user.company)
-            .values_list("snapshot_date", flat=True)
-            .distinct()
-            .order_by("-snapshot_date")
-        )
-        return Response({"dates": [str(d) for d in dates]})
 
 
 class InventoryCategoryBreakdownView(APIView):
     """
     GET /api/inventory/category-breakdown/
-
-    Returns total qty and value grouped by category for a given snapshot date.
-    Used for the category distribution chart.
-
-    Query params:
-        snapshot_date=YYYY-MM-DD
+    Aggregates quantity + value by product_category.
+    Optional ?snapshot_id= to scope to a single import session.
     """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        qs = InventorySnapshot.objects.filter(
-            company=request.user.company
-        ).select_related("product")
+        company_name, err = _get_company_name(request)
+        if err:
+            return err
 
-        snapshot_date = request.query_params.get("snapshot_date")
-        if snapshot_date:
-            qs = qs.filter(snapshot_date=snapshot_date)
-        else:
-            latest = (
-                InventorySnapshot.objects
-                .filter(company=request.user.company)
-                .order_by("-snapshot_date")
-                .values_list("snapshot_date", flat=True)
-                .first()
-            )
-            if latest:
-                qs = qs.filter(snapshot_date=latest)
-                snapshot_date = str(latest)
+        qs = InventorySnapshotLine.objects.filter(
+            snapshot__company_name=company_name,
+        )
+        snapshot_id = request.query_params.get("snapshot_id", "").strip()
+        if snapshot_id:
+            qs = qs.filter(snapshot_id=snapshot_id)
 
         breakdown = (
-            qs.values("product__category")
+            qs.values("product_category")
             .annotate(
-                total_qty=Sum("total_qty"),
-                total_value=Sum("total_value"),
+                total_qty=Sum("quantity"),
+                total_value=Sum("line_value"),
             )
             .order_by("-total_value")
         )
 
         return Response({
-            "snapshot_date": snapshot_date,
             "categories": [
                 {
-                    "category": row["product__category"] or "Uncategorized",
-                    "total_qty": float(row["total_qty"] or 0),
-                    "total_value": float(row["total_value"] or 0),
+                    "category": r["product_category"] or "Uncategorized",
+                    "total_qty": float(r["total_qty"] or 0),
+                    "total_value": float(r["total_value"] or 0),
                 }
-                for row in breakdown
+                for r in breakdown
             ],
         })
+
+
+class InventorySnapshotDatesView(APIView):
+    """GET /api/inventory/dates/ — distinct import dates."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        company_name, err = _get_company_name(request)
+        if err:
+            return err
+
+        dates = (
+            InventorySnapshot.objects
+            .filter(company_name=company_name)
+            .annotate(import_date=TruncDate("uploaded_at"))
+            .values_list("import_date", flat=True)
+            .distinct()
+            .order_by("-import_date")
+        )
+        return Response({"dates": [str(d) for d in dates if d]})

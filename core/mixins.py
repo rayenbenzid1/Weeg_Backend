@@ -7,21 +7,21 @@ logger = logging.getLogger("django")
 
 class BranchFilterMixin:
     """
-    Mixin that automatically filters querysets by branch.
+    Mixin that automatically filters querysets by company.
     
-    - Admin    : sees all branches
-    - Manager  : sees only their own branch
-    - Agent    : sees only their own branch
+    - Admin    : sees all companies' data
+    - Manager  : sees only their company's data
+    - Agent    : sees only their company's data
     
-    To be used in views that return branch-related data.
+    To be used in views that return company-related data.
     """
 
     def get_branch_queryset(self, queryset):
         user = self.request.user
         if user.role == "admin":
             return queryset
-        if user.branch:
-            return queryset.filter(branch=user.branch)
+        if user.company:
+            return queryset.filter(company=user.company)
         return queryset.none()
 
 

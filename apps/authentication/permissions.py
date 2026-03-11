@@ -23,11 +23,11 @@ class IsSameUserOrAdmin(BasePermission):
 class CanManageAgent(BasePermission):
     """
     Checks if a manager has permission to manage a specific agent.
-    Managers can only manage agents from their own branch.
+    Managers can only manage agents from their own company.
 
     Used by AgentDetailView.
     """
-    message = "You can only manage agents from your own branch."
+    message = "You can only manage agents from your own company."
 
     def has_object_permission(self, request, view, obj):
         if request.user.role == User.Role.ADMIN:
@@ -36,7 +36,7 @@ class CanManageAgent(BasePermission):
         if request.user.role == User.Role.MANAGER:
             return (
                 obj.role == User.Role.AGENT
-                and obj.branch == request.user.branch
+                and obj.company == request.user.company
             )
 
         return False
@@ -60,7 +60,7 @@ class CanResetPassword(BasePermission):
         if request.user.role == User.Role.MANAGER:
             return (
                 obj.role == User.Role.AGENT
-                and obj.branch == request.user.branch
+                and obj.company == request.user.company
             )
 
         return False

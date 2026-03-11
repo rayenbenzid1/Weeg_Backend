@@ -8,7 +8,7 @@ The AgingListView returns { records: [...] } and the dataHooks.ts useAgingReport
 hook maps that key to { results: [...] } automatically.
 """
 from rest_framework import serializers
-from .models import AgingReceivable
+from .models import AgingReceivable, AgingSnapshot
 
 
 # ── Full record (detail view) ─────────────────────────────────────────────────
@@ -22,7 +22,7 @@ class AgingReceivableSerializer(serializers.ModelSerializer):
     risk_score    = serializers.SerializerMethodField()
     overdue_total = serializers.SerializerMethodField()
     customer_name = serializers.CharField(
-        source="customer.customer_name",
+        source="customer.name",
         read_only=True,
         allow_null=True,
         default=None,
@@ -31,7 +31,7 @@ class AgingReceivableSerializer(serializers.ModelSerializer):
     class Meta:
         model  = AgingReceivable
         fields = [
-            "id", "report_date",
+            "id",
             "customer", "customer_name",
             "account", "account_code",
             # 13 aging buckets
@@ -71,16 +71,18 @@ class AgingListSerializer(serializers.ModelSerializer):
     risk_score    = serializers.SerializerMethodField()
     overdue_total = serializers.SerializerMethodField()
     customer_name = serializers.CharField(
-        source="customer.customer_name",
+        source="customer.name",
         read_only=True,
         allow_null=True,
         default=None,
     )
 
+    snapshot_id = serializers.UUIDField(source='snapshot.id', read_only=True)
+
     class Meta:
         model  = AgingReceivable
         fields = [
-            "id", "report_date",
+            "id", "snapshot_id",
             "account_code", "account", "customer_name",
             # All 13 buckets
             "current",
@@ -97,6 +99,44 @@ class AgingListSerializer(serializers.ModelSerializer):
 
     def get_overdue_total(self, obj) -> float:
         return float(obj.overdue_total)
+
+
+# ── Snapshot list ─────────────────────────────────────────────────────────────
+
+class AgingSnapshotSerializer(serializers.ModelSerializer):
+    """
+    Summary representation of one aging import session.
+    Used by AgingSnapshotListView → GET/DELETE /api/aging/snapshots/
+    """
+    uploaded_by_name = serializers.SerializerMethodField()
+    line_count       = serializers.SerializerMethodField()
+    grand_total      = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = AgingSnapshot
+        fields = [
+            "id",
+            "report_date",
+            "source_file",
+            "uploaded_by_name",
+            "uploaded_at",
+            "line_count",
+            "grand_total",
+        ]
+        read_only_fields = fields
+
+    def get_uploaded_by_name(self, obj) -> str:
+        if not obj.uploaded_by:
+            return None
+        return obj.uploaded_by.get_full_name() or obj.uploaded_by.username
+
+    def get_line_count(self, obj) -> int:
+        return obj.lines.count()
+
+    def get_grand_total(self, obj) -> float:
+        from django.db.models import Sum
+        result = obj.lines.aggregate(t=Sum('total'))['t']
+        return float(result or 0)
 
 
 # ── Distribution aggregation ──────────────────────────────────────────────────
@@ -117,7 +157,7 @@ class AgingDistributionSerializer(serializers.Serializer):
 
 class AgingDatesSerializer(serializers.Serializer):
     """
-    Available report dates for the date-picker.
+    Available import dates for the date-picker.
     GET /api/aging/dates/
     → { dates: ["2025-12-31", "2024-12-31"] }
     """

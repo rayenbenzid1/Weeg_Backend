@@ -1,18 +1,15 @@
 import uuid
+from django.conf import settings
 from django.db import models
 from django.db.models import Sum
 
 
-class AgingReceivable(models.Model):
+class AgingSnapshot(models.Model):
     """
-    Represents a customer aging receivables record imported from the Excel file
-    (اعمار_الذمم_2025).
+    One import-session record per uploaded aging Excel file.
 
-    Each row corresponds to one customer account with their outstanding
-    balances broken down into aging buckets (current, 1-30 days, 31-60 days, ...).
-
-    The total field is computed from the raw data to avoid reliance on
-    Excel formula values.
+    All AgingReceivable lines produced by a single import are linked here.
+    Deleting a snapshot cascades to all its lines — full rollback in one DELETE.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -20,11 +17,72 @@ class AgingReceivable(models.Model):
     company = models.ForeignKey(
         "companies.Company",
         on_delete=models.CASCADE,
-        related_name="aging_receivables",
+        related_name="aging_snapshots",
         verbose_name="Company",
     )
 
-    # Optional FK to Customer — linked if account_code matches
+    report_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Report Date",
+    )
+
+    source_file = models.CharField(
+        max_length=500,
+        blank=True,
+        verbose_name="Source File",
+    )
+
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="aging_snapshots",
+        verbose_name="Uploaded By",
+    )
+
+    uploaded_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Uploaded At",
+    )
+
+    class Meta:
+        db_table = "aging_snapshot"
+        ordering = ["-uploaded_at"]
+        verbose_name = "Aging Snapshot"
+        verbose_name_plural = "Aging Snapshots"
+
+    def __str__(self):
+        label = str(self.report_date or self.uploaded_at.date())
+        return f"Aging {label} — {self.company}"
+
+
+class AgingReceivable(models.Model):
+    """
+    One customer account row from an aging Excel report.
+
+    Each instance belongs to one AgingSnapshot session.
+    Deleting the snapshot cascades to all its lines.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    snapshot = models.ForeignKey(
+        AgingSnapshot,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name="Snapshot",
+    )
+
+    company = models.ForeignKey(
+        "companies.Company",
+        on_delete=models.CASCADE,
+        related_name="aging_receivables",
+        verbose_name="Company",
+        help_text="Denormalized from snapshot for efficient filtering.",
+    )
+
     customer = models.ForeignKey(
         "customers.Customer",
         on_delete=models.SET_NULL,
@@ -48,12 +106,6 @@ class AgingReceivable(models.Model):
         null=True,
         verbose_name="Account Code",
         db_index=True,
-    )
-
-    # Snapshot date for this aging report
-    report_date = models.DateField(
-        verbose_name="Report Date",
-        help_text="Date of the aging report snapshot.",
     )
 
     # ── Aging buckets (all in LYD) ────────────────────────────────────────────
@@ -125,10 +177,9 @@ class AgingReceivable(models.Model):
         verbose_name = "Aging Receivable"
         verbose_name_plural = "Aging Receivables"
         ordering = ["-total", "account"]
-        unique_together = [("company", "account_code", "report_date")]
 
     def __str__(self):
-        return f"{self.account} — {self.total} LYD ({self.report_date})"
+        return f"{self.account} — {self.total} LYD"
 
     def compute_total(self):
         """Recalculate total from all aging buckets."""

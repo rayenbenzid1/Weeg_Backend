@@ -158,20 +158,6 @@ class User(AbstractUser):
     )
 
     # -------------------------------------------------------------------------
-    # Assigned branch (kept — do not remove)
-    # -------------------------------------------------------------------------
-
-    branch = models.ForeignKey(
-        "branches.Branch",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="users",
-        verbose_name="Branch",
-        help_text="Branch assigned to the user. Null for admins.",
-    )
-
-    # -------------------------------------------------------------------------
     # Advanced JWT security
     # -------------------------------------------------------------------------
 

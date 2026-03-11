@@ -53,9 +53,6 @@ class ExcelUploadView(APIView):
 
         file_obj = serializer.validated_data["file"]
         file_type_override = serializer.validated_data.get("file_type")
-        snapshot_date = serializer.validated_data.get("snapshot_date")
-        report_date = serializer.validated_data.get("report_date")
-
         company = request.user.company
         if not company:
             return Response(
@@ -70,24 +67,16 @@ class ExcelUploadView(APIView):
             file_type=file_type_override or "movements",  # Placeholder until detected
             original_filename=file_obj.name,
             status=ImportLog.ImportStatus.PROCESSING,
-            import_context={
-                "snapshot_date": str(snapshot_date) if snapshot_date else None,
-                "report_date": str(report_date) if report_date else None,
-            },
+            import_context={},
         )
 
         try:
-            extra_context = {
-                "snapshot_date": snapshot_date,
-                "report_date": report_date,
-            }
-
             result = parse_excel_file(
                 file_obj=file_obj,
                 filename=file_obj.name,
                 company=company,
                 file_type=file_type_override,
-                extra_context=extra_context,
+                extra_context={"user": request.user, "filename": file_obj.name},
             )
 
             # Enforce agent file type restrictions
@@ -125,7 +114,7 @@ class ExcelUploadView(APIView):
             log.import_context.update({
                 k: v for k, v in result.items()
                 if k in ("date_range", "deleted_existing", "deleted_stale",
-                         "deactivated", "snapshot_date", "report_date")
+                         "deactivated")
             })
 
             log.status = (
@@ -152,14 +141,15 @@ class ExcelUploadView(APIView):
                         "total_rows":     result["total"],
                         "created":        result.get("created", 0),
                         "updated":        result.get("updated", 0),
-                        # Type-specific update metadata
-                        "deactivated":    result.get("deactivated"),       # customers
-                        "deleted_stale":  result.get("deleted_stale"),     # aging
-                        "deleted_existing": result.get("deleted_existing"), # movements
-                        "date_range":     result.get("date_range"),        # movements
-                        "snapshot_date":  result.get("snapshot_date"),     # inventory
-                        "report_date":    result.get("report_date"),       # aging
-                        "errors":         errors_list[:20],
+                        # Type-specific metadata
+                        "deactivated":        result.get("deactivated"),        # customers
+                        "deleted_stale":      result.get("deleted_stale"),      # aging
+                        "deleted_existing":   result.get("deleted_existing"),   # movements
+                        "date_range":         result.get("date_range"),         # movements
+                        "snapshot_id":        result.get("snapshot_id"),        # inventory
+                        "inventory_year":     result.get("inventory_year"),     # inventory
+                        "branches_detected":  result.get("branches_detected"),  # inventory
+                        "errors":             errors_list[:20],
                     },
                 },
                 status=status.HTTP_201_CREATED,

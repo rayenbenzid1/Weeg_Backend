@@ -1,43 +1,52 @@
 from django.contrib import admin
-from .models import InventorySnapshot
+from .models import InventorySnapshot, InventorySnapshotLine
+
+
+class InventorySnapshotLineInline(admin.TabularInline):
+    model = InventorySnapshotLine
+    extra = 0
+    readonly_fields = [
+        "id", "product_category", "product_code", "product_name",
+        "branch_name", "quantity", "unit_cost", "line_value",
+    ]
+    can_delete = False
+    max_num = 0
 
 
 @admin.register(InventorySnapshot)
 class InventorySnapshotAdmin(admin.ModelAdmin):
     list_display = [
-        "product", "snapshot_date", "total_qty",
-        "total_value", "cost_price", "company",
+        "company_name", "label", "source_file", "fiscal_year",
+        "snapshot_date", "uploaded_at", "uploaded_by",
     ]
-    list_filter = ["company", "snapshot_date"]
-    search_fields = [
-        "product__product_code", "product__product_name",
-    ]
-    readonly_fields = ["id", "created_at", "updated_at"]
-    ordering = ["-snapshot_date", "product__product_name"]
-    list_per_page = 50
-    date_hierarchy = "snapshot_date"
+    list_filter = ["company_name", "fiscal_year", "uploaded_at"]
+    search_fields = ["company_name", "label", "source_file"]
+    readonly_fields = ["id", "uploaded_at"]
+    ordering = ["-uploaded_at"]
+    list_per_page = 30
+    inlines = [InventorySnapshotLineInline]
 
     fieldsets = (
-        ("Reference", {
-            "fields": ("id", "company", "product", "snapshot_date"),
+        ("Session", {
+            "fields": ("id", "company_name", "label", "source_file"),
         }),
-        ("Quantities by Branch", {
-            "fields": (
-                "qty_alkarimia", "qty_benghazi", "qty_mazraa",
-                "qty_dahmani", "qty_janzour", "qty_misrata",
-            ),
+        ("Period", {
+            "fields": ("snapshot_date", "fiscal_year"),
         }),
-        ("Values by Branch (LYD)", {
-            "fields": (
-                "value_alkarimia", "value_mazraa",
-                "value_dahmani", "value_janzour", "value_misrata",
-            ),
-        }),
-        ("Totals", {
-            "fields": ("total_qty", "cost_price", "total_value"),
-        }),
-        ("Metadata", {
-            "fields": ("created_at", "updated_at"),
-            "classes": ("collapse",),
+        ("Meta", {
+            "fields": ("notes", "uploaded_at", "uploaded_by"),
         }),
     )
+
+
+@admin.register(InventorySnapshotLine)
+class InventorySnapshotLineAdmin(admin.ModelAdmin):
+    list_display = [
+        "snapshot", "product_code", "product_name",
+        "branch_name", "quantity", "unit_cost", "line_value",
+    ]
+    list_filter = ["branch_name", "snapshot__company_name"]
+    search_fields = ["product_code", "product_name", "branch_name"]
+    readonly_fields = ["id"]
+    ordering = ["snapshot", "product_code", "branch_name"]
+    list_per_page = 100

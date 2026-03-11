@@ -157,7 +157,7 @@ class ProductCategoryListView(APIView):
 class ProductInventoryHistoryView(APIView):
     """
     GET /api/products/{id}/inventory/
-    Returns all inventory snapshots for the given product, ordered by date DESC.
+    Returns all inventory snapshots for the given product, ordered by import date DESC.
     """
 
     permission_classes = [IsAuthenticated]
@@ -174,7 +174,7 @@ class ProductInventoryHistoryView(APIView):
         snapshots = InventorySnapshot.objects.filter(
             company=request.user.company,
             product=product,
-        ).order_by("-snapshot_date")
+        ).order_by("-created_at")
 
         return Response({
             "product": {
