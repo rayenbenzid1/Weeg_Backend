@@ -1,7 +1,8 @@
 # apps/kpi/views_supply.py
 # ══════════════════════════════════════════════════════════════════
 # Supply Policy API  —  GET /api/kpi/supply/
-# v4: Source Breakdown (International vs Local) removed entirely.
+# v5: Lead times now deduplicate by (supplier, date) — multiple
+#     product lines on the same day = ONE order, not N.
 #
 # FIX 3: Branches resolved dynamically via FK (branch__name from
 #        the Branch model).
@@ -183,9 +184,12 @@ def supply_kpi_view(request):
         supplier_skus.append({'supplier': sup_name, 'items': items})
 
     # ── 6. Lead times ─────────────────────────────────────────────
+    # A "commande" = unique (supplier, date) pair.
+    # Multiple product lines on the same day for the same supplier
+    # count as ONE order — deduplicate before computing gaps.
     date_qs = MaterialMovement.objects.filter(
         movement_type='ف شراء'
-    ).values('customer_name', 'movement_date')
+    ).values('customer_name', 'movement_date').distinct()
 
     if year_param != 'all':
         try:
@@ -193,28 +197,43 @@ def supply_kpi_view(request):
         except (ValueError, TypeError):
             pass
 
-    sup_dates: dict[str, list] = defaultdict(list)
+    # Use a set per supplier so duplicate (supplier, date) rows are ignored
+    sup_order_dates: dict[str, set] = defaultdict(set)
     for r in date_qs:
         sup_name = (r.get('customer_name') or '').strip() or 'Unknown'
         d = r['movement_date']
-        if d:
-            sup_dates[sup_name].append(
-                d if hasattr(d, 'year') else datetime.fromisoformat(str(d))
-            )
+        if not d:
+            continue
+        # Normalise to a plain date so same-day datetime variants collapse
+        if hasattr(d, 'date'):
+            order_date = d.date()       # datetime → date
+        elif hasattr(d, 'year'):
+            order_date = d              # already a date
+        else:
+            try:
+                order_date = datetime.fromisoformat(str(d)).date()
+            except Exception:
+                continue
+        sup_order_dates[sup_name].add(order_date)
 
     lead_times = []
-    for sup_name, dates in sup_dates.items():
-        if len(dates) < 2:
+    for sup_name, date_set in sup_order_dates.items():
+        # Need at least 2 distinct order dates to compute a gap
+        if len(date_set) < 2:
             continue
-        dates_sorted = sorted(dates)
+        dates_sorted = sorted(date_set)
         gaps = [
-            (dates_sorted[i+1] - dates_sorted[i]).days
+            (dates_sorted[i + 1] - dates_sorted[i]).days
             for i in range(len(dates_sorted) - 1)
         ]
-        avg_days = round(sum(gaps) / len(gaps))
+        # After dedup, gaps should all be > 0, but guard just in case
+        positive_gaps = [g for g in gaps if g > 0]
+        if not positive_gaps:
+            continue
+        avg_days = round(sum(positive_gaps) / len(positive_gaps))
         lead_times.append({
             'supplier': sup_name,
-            'orders':   len(dates),
+            'orders':   len(date_set),   # number of distinct order dates
             'avg_days': avg_days,
         })
 
