@@ -149,8 +149,9 @@ class ExcelUploadView(APIView):
                         "deleted_stale":      result.get("deleted_stale"),      # aging
                         "deleted_existing":   result.get("deleted_existing"),   # movements
                         "date_range":         result.get("date_range"),         # movements
-                        "snapshot_id":        result.get("snapshot_id"),        # inventory
+                        "snapshot_id":        result.get("snapshot_id"),        # inventory / aging
                         "inventory_year":     result.get("inventory_year"),     # inventory
+                        "aging_year":         result.get("aging_year"),         # aging
                         "branches_detected":  result.get("branches_detected"),  # inventory
                         "errors":             errors_list[:20],
                     },

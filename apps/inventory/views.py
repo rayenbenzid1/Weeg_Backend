@@ -170,6 +170,10 @@ class InventorySnapshotLinesView(APIView):
             grand_total_qty=Sum("quantity"),
             grand_total_value=Sum("line_value"),
         )
+        distinct_products  = qs.values("product_code").distinct().count()
+        out_of_stock_count = qs.filter(quantity=0).count()
+        critical_count     = qs.filter(quantity__gt=0, quantity__lt=30).count()
+        low_count          = qs.filter(quantity__gte=30, quantity__lte=50).count()
 
         total = qs.count()
         page      = _safe_int(request.query_params.get("page", 1),       default=1,   min_val=1, max_val=10_000)
@@ -183,8 +187,12 @@ class InventorySnapshotLinesView(APIView):
             "page_size": page_size,
             "total_pages": max(1, (total + page_size - 1) // page_size),
             "totals": {
-                "grand_total_qty": float(totals["grand_total_qty"] or 0),
-                "grand_total_value": float(totals["grand_total_value"] or 0),
+                "grand_total_qty":    float(totals["grand_total_qty"]   or 0),
+                "grand_total_value":  float(totals["grand_total_value"] or 0),
+                "distinct_products":  distinct_products,
+                "out_of_stock_count": out_of_stock_count,
+                "critical_count":     critical_count,
+                "low_count":          low_count,
             },
             "lines": InventorySnapshotLineSerializer(qs_page, many=True).data,
         })

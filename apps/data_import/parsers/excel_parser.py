@@ -498,6 +498,16 @@ class AgingParser:
         user = extra_context.get("user")
         source_file = extra_context.get("filename", "")
 
+        # ── Validate: year must appear in the filename ────────────────────────
+        year_match = re.search(r'(?<!\d)(20\d{2})(?!\d)', source_file)
+        if not year_match:
+            raise ValueError(
+                "The file name does not contain a valid year. "
+                "Please rename your file by including the year "
+                "(e.g., Aging 2025.xlsx)."
+            )
+        aging_year = int(year_match.group(1))
+
         data_rows = [r for r in rows[1:] if r and len(r) > 1 and r[1] is not None]
         errors = []
 
@@ -506,9 +516,21 @@ class AgingParser:
             for c in Customer.objects.filter(company=company)
         }
 
-        # Create a fresh snapshot for this import session
+        # ── Upsert: delete existing snapshot for same company + year ─────────
+        old_qs = AgingSnapshot.objects.filter(company=company, aging_year=aging_year)
+        deleted_count = old_qs.count()
+        old_qs.delete()
+        if deleted_count:
+            logger.info(
+                "[AgingParser] Replaced %d existing snapshot(s) for "
+                "company=%s year=%d.",
+                deleted_count, company, aging_year,
+            )
+
+        # ── Create fresh snapshot for this import session ────────────────────
         snapshot = AgingSnapshot.objects.create(
             company=company,
+            aging_year=aging_year,
             source_file=source_file,
             uploaded_by=user,
         )
@@ -569,6 +591,7 @@ class AgingParser:
             "created": len(lines),
             "updated": 0,
             "snapshot_id": str(snapshot.id),
+            "aging_year": aging_year,
             "errors": errors,
         }
 

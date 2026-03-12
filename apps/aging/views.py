@@ -303,6 +303,15 @@ class AgingHistoricalTrendView(APIView):
                 d121_150=0, d151_180=0, d181_210=0, d211_240=0,
                 d241_270=0, d271_300=0, d301_330=0, over_330=0,
             ).count()
+            
+            # Count customers: over60 = overdue buckets beyond 60 days only (no current, no 1-60)
+            overdue_60_customers = snap.lines.filter(
+                d31_60=0, d61_90=0, d91_120=0,
+                d121_150=0, d151_180=0, d181_210=0, d211_240=0,
+                d241_270=0, d271_300=0, d301_330=0, over_330=0,
+            ).count()
+            
+            overdue60_customers = total_customers - paid_customers - overdue_60_customers
 
             overdue_customers = total_customers - paid_customers
 
@@ -317,8 +326,10 @@ class AgingHistoricalTrendView(APIView):
                 "total_customers":    total_customers,
                 "paid_customers":     paid_customers,
                 "overdue_customers":  overdue_customers,
+                "overdue60_customers": overdue60_customers,
                 "paid_pct":           round(paid_customers / total_customers * 100, 1) if total_customers else 0,
                 "overdue_pct":        round(overdue_customers / total_customers * 100, 1) if total_customers else 0,
+                "overdue60_pct":       round(overdue60_customers / total_customers * 100, 1) if total_customers else 0,
             })
 
         return Response({"count": len(result), "trend": result})

@@ -21,6 +21,13 @@ class AgingSnapshot(models.Model):
         verbose_name="Company",
     )
 
+    aging_year = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Aging Year",
+        help_text="4-digit fiscal year extracted from the uploaded filename.",
+    )
+
     report_date = models.DateField(
         null=True,
         blank=True,
