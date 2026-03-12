@@ -22,22 +22,6 @@ PURCHASE_TYPES        = ["ف شراء"]
 RETURN_SALE_TYPES     = ["مردودات بيع"]
 RETURN_PURCHASE_TYPES = ["مردود شراء"]
 
-# Maps Arabic branch names to English display labels.
-BRANCH_NAME_MAP = {
-    "مخزن صالة عرض الكريمية":          "Al-Karimia",
-    "مخزن صالة عرض الدهماني":          "Dahmani",
-    "مخزن صالة عرض جنزور":             "Janzour",
-    "مخزن صالة عرض مصراتة":            "Misrata",
-    "مخزن المزرعة":                    "Al-Mazraa",
-    "مخزن بنغازي":                     "Benghazi",
-    "مخزن الأنظمة المتكاملة - الكريمية": "Al-Karimia",
-}
-
-def _en_branch(arabic_name: str | None) -> str:
-    if not arabic_name:
-        return "Unknown"
-    return BRANCH_NAME_MAP.get(arabic_name.strip(), arabic_name.strip())
-
 
 class TransactionListView(APIView):
     """
@@ -96,12 +80,6 @@ class TransactionListView(APIView):
         if ordering in self.ALLOWED_ORDERINGS:
             qs = qs.order_by(ordering)
 
-        # ── Totaux KPI ───────────────────────────────────────────────────────────
-        # Ventes  (ف بيع, مردودات بيع)   → valeur réelle dans total_out
-        # Achats  (ف شراء, مردود شراء, ادخال رئيسي) → valeur réelle dans total_in
-        # ── Totaux KPI ───────────────────────────────────────────────────────────
-        # Excel اجمالي الاخراجات = 9,341,919,552 → ventes ف بيع → total_out
-        # Excel اجمالي الادخلات  = 8,193,107,933 → achats ف شراء → total_in (فاتورة شراء uniquement)
         sale_total_out = (
             qs.filter(movement_type="ف بيع")
             .aggregate(v=Sum("total_out"))["v"] or 0
@@ -111,8 +89,8 @@ class TransactionListView(APIView):
             .aggregate(v=Sum("total_in"))["v"] or 0
         )
         totals = {
-            "total_in_value":  float(purchase_total_in),   # اجمالي الادخلات  — ف شراء only
-            "total_out_value": float(sale_total_out),       # اجمالي الاخراجات — ف بيع only
+            "total_in_value":  float(purchase_total_in),
+            "total_out_value": float(sale_total_out),
         }
 
         total_count = qs.count()
@@ -126,8 +104,8 @@ class TransactionListView(APIView):
             "page":        page,
             "page_size":   page_size,
             "total_pages": max(1, (total_count + page_size - 1) // page_size),
-            "totals": totals,
-            "movements": MovementListSerializer(qs_page, many=True).data,
+            "totals":      totals,
+            "movements":   MovementListSerializer(qs_page, many=True).data,
         })
 
 
@@ -172,22 +150,23 @@ class TransactionMovementTypesView(APIView):
 class TransactionBranchesView(APIView):
     """
     GET /api/transactions/branches/
-    Returns distinct branch names (English) for this company.
+    Returns distinct branch names (raw, as stored in DB) for this company.
+    No mapping applied — branch names are canonical after import normalisation.
     """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        raw_branches = (
+        branches = (
             MaterialMovement.objects
             .filter(company=request.user.company)
             .exclude(branch__name__isnull=True)
             .exclude(branch__name="")
             .values_list("branch__name", flat=True)
             .distinct()
+            .order_by("branch__name")
         )
-        english_branches = sorted({_en_branch(b) for b in raw_branches})
-        return Response({"branches": english_branches})
+        return Response({"branches": sorted(set(branches))})
 
 
 class TransactionSummaryView(APIView):
@@ -197,6 +176,8 @@ class TransactionSummaryView(APIView):
 
     Query params:
         year=<int>
+        date_from=YYYY-MM-DD
+        date_to=YYYY-MM-DD
     """
 
     permission_classes = [IsAuthenticated]
@@ -204,14 +185,15 @@ class TransactionSummaryView(APIView):
     def get(self, request):
         qs = MaterialMovement.objects.filter(company=request.user.company)
 
-        year = request.query_params.get("year")
-        date_from = request.query_params.get("date_from")  # ← AJOUT
-        date_to  = request.query_params.get("date_to")  
+        year      = request.query_params.get("year")
+        date_from = request.query_params.get("date_from")
+        date_to   = request.query_params.get("date_to")
+
         if date_from:
             qs = qs.filter(movement_date__gte=date_from)
         if date_to:
             qs = qs.filter(movement_date__lte=date_to)
-        if year and not date_from and not date_to:   # ← seulement si pas de dates
+        if year and not date_from and not date_to:
             try:
                 qs = qs.filter(movement_date__year=int(year))
             except ValueError:
@@ -243,11 +225,9 @@ class TransactionSummaryView(APIView):
                 }
             mt = row["movement_type"]
             if mt in SALE_TYPES or mt in RETURN_SALE_TYPES:
-                # Sales go OUT → total_out
                 pivot[key]["total_sales"]  += float(row["total_out_value"] or 0)
                 pivot[key]["sales_count"]  += row["row_count"]
             elif mt in PURCHASE_TYPES or mt in RETURN_PURCHASE_TYPES:
-                # Purchases come IN → total_in (اجمالي الادخلات)
                 pivot[key]["total_purchases"] += float(row["total_in_value"] or 0)
                 pivot[key]["purchases_count"] += row["row_count"]
 
@@ -288,7 +268,7 @@ class TransactionTypeBreakdownView(APIView):
                 {
                     "movement_type": row["movement_type"],
                     "count":         row["count"],
-                    "total_in":      float(row["total_in"] or 0),
+                    "total_in":      float(row["total_in"]  or 0),
                     "total_out":     float(row["total_out"] or 0),
                 }
                 for row in breakdown
@@ -307,8 +287,8 @@ class TransactionBranchBreakdownView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    # Movement types where value is stored in total_in (not total_out)
     PURCHASE_TYPES = {"ف شراء", "مردود شراء"}
+
     def get(self, request):
         movement_type = request.query_params.get("movement_type", "ف بيع")
 
@@ -325,7 +305,6 @@ class TransactionBranchBreakdownView(APIView):
         if date_to:
             qs = qs.filter(movement_date__lte=date_to)
 
-        # ── Use total_in for purchase-type movements, total_out for sales ──
         value_field = "total_in" if movement_type in self.PURCHASE_TYPES else "total_out"
 
         breakdown = (
@@ -338,14 +317,15 @@ class TransactionBranchBreakdownView(APIView):
             "movement_type": movement_type,
             "branches": [
                 {
-                    "branch": _en_branch(row["branch__name"]),
+                    # branch name is already canonical (normalised at import time)
+                    "branch": row["branch__name"] or "Unknown",
                     "count":  row["count"],
                     "total":  float(row["total"] or 0),
                 }
                 for row in breakdown
             ],
         })
-# ── This must be a TOP-LEVEL class, NOT nested inside TransactionBranchBreakdownView ──
+
 
 class TransactionBranchMonthlyView(APIView):
     """
@@ -355,6 +335,8 @@ class TransactionBranchMonthlyView(APIView):
     Query params:
         movement_type=<arabic_value>  — default: "ف بيع"
         year=<int>
+        date_from=YYYY-MM-DD
+        date_to=YYYY-MM-DD
     """
 
     permission_classes = [IsAuthenticated]
@@ -370,7 +352,6 @@ class TransactionBranchMonthlyView(APIView):
             movement_type=movement_type,
         )
 
-        # Priority: date_from/date_to over year
         if date_from:
             qs = qs.filter(movement_date__gte=date_from)
         if date_to:
@@ -388,12 +369,13 @@ class TransactionBranchMonthlyView(APIView):
             .order_by("month", "branch__name")
         )
 
-        pivot = {}
+        pivot: dict = {}
         branches: set[str] = set()
 
         for row in rows:
-            key = row["month"].strftime("%Y-%m")
-            branch = _en_branch(row["branch__name"])
+            key    = row["month"].strftime("%Y-%m")
+            # branch name is already canonical — use as-is
+            branch = row["branch__name"] or "Unknown"
             branches.add(branch)
             if key not in pivot:
                 pivot[key] = {

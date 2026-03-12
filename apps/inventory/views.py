@@ -11,20 +11,35 @@ from .serializers import (
     InventorySnapshotListSerializer,
     InventorySnapshotLineSerializer,
 )
+from apps.branches.resolver import BranchResolver   # ← ajouter cet import en haut du fichier
 
 
 def _get_company_name(request):
     """
     Returns (company_name: str, error: Response|None).
-    If the user has no associated company (admin without company), returns an
-    error response so callers can return it immediately.
+    If the user has no associated company the behaviour depends on roles:
+      * normal users -> 403 error
+      * superusers/staff -> may pass `?company_name=` to specify a target
+    This makes it possible to inspect inventory for other companies when using
+    an admin account (used in development).
     """
-    if not request.user.company:
+    if request.user.company:
+        return request.user.company.name, None
+
+    # allow superuser/staff to override via queryparam
+    if request.user.is_active and (request.user.is_staff or request.user.is_superuser):
+        name = request.query_params.get("company_name", "").strip()
+        if name:
+            return name, None
         return None, Response(
-            {"error": "Your account is not linked to a company."},
-            status=status.HTTP_403_FORBIDDEN,
+            {"error": "Please provide company_name query parameter for admin access."},
+            status=status.HTTP_400_BAD_REQUEST,
         )
-    return request.user.company.name, None
+
+    return None, Response(
+        {"error": "Your account is not linked to a company."},
+        status=status.HTTP_403_FORBIDDEN,
+    )
 
 
 def _safe_int(value, default: int, min_val: int, max_val: int) -> int:
@@ -176,12 +191,6 @@ class InventorySnapshotLinesView(APIView):
 
 
 class InventoryBranchSummaryView(APIView):
-    """
-    GET /api/inventory/branch-summary/
-    Aggregates quantity + value by branch_name.
-    Optional ?snapshot_id= to scope to a single import session.
-    """
-
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -205,18 +214,40 @@ class InventoryBranchSummaryView(APIView):
             .order_by("branch_name")
         )
 
+        # ── Normaliser via BranchResolver ─────────────────────────────────
+        company  = request.user.company
+        resolver = BranchResolver(company) if company else None
+
+        merged: dict[str, dict] = {}
+        for r in rows:
+            raw = r["branch_name"] or "Unknown"
+
+            # Résoudre vers le nom canonique
+            if resolver:
+                branch_obj = resolver.resolve(raw)
+                canonical  = branch_obj.name if branch_obj else raw
+            else:
+                canonical = raw
+
+            qty   = float(r["total_qty"]   or 0)
+            value = float(r["total_value"] or 0)
+
+            if canonical in merged:
+                merged[canonical]["total_qty"]   += qty
+                merged[canonical]["total_value"] += value
+            else:
+                merged[canonical] = {"total_qty": qty, "total_value": value}
+
         return Response({
             "branches": [
                 {
-                    "branch": r["branch_name"],
-                    "total_qty": float(r["total_qty"] or 0),
-                    "total_value": float(r["total_value"] or 0),
+                    "branch":      name,
+                    "total_qty":   data["total_qty"],
+                    "total_value": data["total_value"],
                 }
-                for r in rows
+                for name, data in sorted(merged.items())
             ],
         })
-
-
 class InventoryCategoryBreakdownView(APIView):
     """
     GET /api/inventory/category-breakdown/

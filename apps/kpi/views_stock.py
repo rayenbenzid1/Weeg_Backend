@@ -12,13 +12,16 @@ FIX: Join sales → inventory by material_name (NOT material_code).
      Movements file uses short codes (e.g. "EC0020") while inventory
      uses full codes (e.g. "AS-FD-In-AD-EC0020") → code join = 0% match.
      Product names are identical in both files → use name as join key.
+
+FIX2: avg_unit_cost computed in Python (not chained ORM annotation)
+      to avoid NameError: unit_cost_sum not defined at queryset eval time.
 """
 
 import logging
 from decimal import Decimal
 from datetime import date
 
-from django.db.models import Sum
+from django.db.models import Sum, Case, When, DecimalField
 from django.db.models.functions import Coalesce
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -44,8 +47,9 @@ class StockKPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from apps.inventory.models import InventorySnapshot
+        from apps.inventory.models import InventorySnapshot, InventorySnapshotLine
         from apps.transactions.models import MaterialMovement
+        from django.db.models import Sum, DecimalField
 
         company = request.user.company
 
@@ -58,10 +62,22 @@ class StockKPIView(APIView):
         period_to   = date(year, 12, 31)
         n_days = (period_to - period_from).days + 1
 
-        # ── Inventory snapshot ───────────────────────────────────────────────
-        inv_qs = InventorySnapshot.objects.filter(
-            company=company,
-        ).select_related("product")
+        # ── Inventory lines aggregated by product_name ───────────────────────
+        # avg_unit_cost is computed in Python below to avoid chained-annotation
+        # NameError (annotated aliases can't be referenced in the same queryset).
+        inv_lines = (
+            InventorySnapshotLine.objects
+            .filter(
+                snapshot__company=company,
+            )
+            .values("product_name", "product_code", "product_category")
+            .annotate(
+                total_qty=Coalesce(Sum("quantity"), Decimal("0")),
+                total_value=Coalesce(Sum("line_value"), Decimal("0")),
+                qty_sum=Coalesce(Sum("quantity", output_field=DecimalField()), Decimal("0")),
+                unit_cost_sum=Coalesce(Sum("unit_cost", output_field=DecimalField()), Decimal("0")),
+            )
+        )
 
         # ── Sales grouped by material_name (FIX: not material_code) ─────────
         sales_by_name = {}
@@ -94,16 +110,23 @@ class StockKPIView(APIView):
         total_stock_value = 0.0
         total_stock_qty   = 0.0
 
-        for snap in inv_qs:
-            stock_qty  = float(snap.total_qty)
-            stock_val  = float(snap.total_value)
-            cost_price = float(snap.cost_price)
+        for line in inv_lines:
+            stock_qty  = float(line["total_qty"])
+            stock_val  = float(line["total_value"])
+            product_name     = line["product_name"] or ""
+            product_code     = line["product_code"] or ""
+            product_category = line["product_category"] or ""
+
+            # avg_unit_cost computed in Python to avoid chained-annotation bug
+            qty_sum       = float(line["qty_sum"])
+            unit_cost_sum = float(line["unit_cost_sum"])
+            cost_price    = (unit_cost_sum / qty_sum) if qty_sum > 0 else 0.0
 
             total_stock_value += stock_val
             total_stock_qty   += stock_qty
 
             # Join by name (normalized)
-            name_key = snap.product.product_name.strip().lower()
+            name_key = product_name.strip().lower()
             sales    = sales_by_name.get(name_key, {"qty_sold": 0.0, "revenue": 0.0})
             qty_sold = sales["qty_sold"]
 
@@ -131,9 +154,9 @@ class StockKPIView(APIView):
                 stock_status = "ok"
 
             product_data = {
-                "material_code":  snap.product.product_code,
-                "product_name":   snap.product.product_name,
-                "category":       snap.product.category or "",
+                "material_code":  product_code,
+                "product_name":   product_name,
+                "category":       product_category,
                 "stock_qty":      stock_qty,
                 "stock_value":    stock_val,
                 "cost_price":     cost_price,
@@ -152,17 +175,17 @@ class StockKPIView(APIView):
 
             if stock_qty == 0:
                 zero_stock.append({
-                    "material_code": snap.product.product_code,
-                    "product_name":  snap.product.product_name,
-                    "category":      snap.product.category or "",
+                    "material_code": product_code,
+                    "product_name":  product_name,
+                    "category":      product_category,
                     "qty_sold":      qty_sold,
                 })
 
             if stock_qty > 0 and rotation_rate < rotation_threshold:
                 low_rotation.append({
-                    "material_code": snap.product.product_code,
-                    "product_name":  snap.product.product_name,
-                    "category":      snap.product.category or "",
+                    "material_code": product_code,
+                    "product_name":  product_name,
+                    "category":      product_category,
                     "stock_qty":     stock_qty,
                     "stock_value":   stock_val,
                     "qty_sold":      qty_sold,

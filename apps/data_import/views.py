@@ -106,7 +106,10 @@ class ExcelUploadView(APIView):
 
             log.file_type     = detected_type
             log.row_count     = result["total"]
-            log.success_count = result.get("created", 0) + result.get("updated", 0)
+            if result["file_type"] == "inventory":
+                log.success_count = result.get("products_count", result.get("total", 0))
+            else:
+                log.success_count = result.get("created", 0) + result.get("updated", 0)
             log.error_count   = len(errors_list)
             log.error_details = errors_list[:100]
 
@@ -220,7 +223,7 @@ class DetectFileTypeView(APIView):
         try:
             wb = openpyxl.load_workbook(file_obj, read_only=True, data_only=True)
             ws = wb.active
-            rows = list(ws.iter_rows(max_row=6, values_only=True))
+            all_rows = list(ws.iter_rows(values_only=True))
             wb.close()
         except Exception as e:
             return Response(
@@ -228,23 +231,34 @@ class DetectFileTypeView(APIView):
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
-        header_row = rows[0] if rows else ()
+        if not all_rows:
+            return Response(
+                {"error": "The uploaded file is empty."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        header_row = all_rows[0]
         detected_type = detect_file_type(file_obj.name, header_row)
 
+        # Compte uniquement les lignes de données non vides (hors en-tête)
+        data_rows = [
+            r for r in all_rows[1:]
+            if r and any(cell is not None and str(cell).strip() != "" for cell in r)
+        ]
+        actual_row_count = len(data_rows)
+
+        headers = [str(h or "") for h in header_row]
         preview = []
-        if rows:
-            headers = [str(h or "") for h in rows[0]]
-            for row in rows[1:6]:
-                preview.append(dict(zip(headers, [str(v or "") for v in row])))
+        for row in all_rows[1:6]:
+            preview.append(dict(zip(headers, [str(v or "") for v in row])))
 
         return Response({
             "filename": file_obj.name,
             "detected_file_type": detected_type,
-            "headers": [str(h or "") for h in header_row],
+            "headers": headers,
             "preview_rows": preview,
-            "total_rows_estimate": ws.max_row - 1 if hasattr(ws, "max_row") else None,
+            "total_rows_estimate": actual_row_count,
         })
-
 
 class ImportLogListView(APIView):
     """

@@ -480,6 +480,7 @@ class InventoryParser:
         return {
             "total": len(data_rows),
             "created": lines_created,
+            "products_count": len(data_rows) - len(errors),  # ← produits importés avec succès
             "updated": 0,
             "snapshot_id": str(snapshot.id),
             "inventory_year": inventory_year,

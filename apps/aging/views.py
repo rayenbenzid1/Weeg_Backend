@@ -267,5 +267,58 @@ class AgingReportDatesView(APIView):
         ]
         return Response({"dates": dates})
 
+class AgingHistoricalTrendView(APIView):
+    permission_classes = [IsAuthenticated]
 
+    def get(self, request):
+        from django.db.models import Sum, Count
+        company = request.user.company
 
+        snapshots = (
+            AgingSnapshot.objects
+            .filter(company=company)
+            .order_by("uploaded_at")
+        )
+
+        result = []
+        for snap in snapshots:
+            agg = snap.lines.aggregate(
+                total_amount=Sum("total"),
+                current_amount=Sum("current"),
+                total_customers=Count("id"),
+            )
+
+            total_amount  = float(agg["total_amount"]  or 0)
+            current_amount = float(agg["current_amount"] or 0)
+            total_customers = agg["total_customers"] or 0
+
+            if total_amount == 0:
+                continue
+
+            overdue_amount = total_amount - current_amount
+
+            # Count customers: paid = only current balance (no overdue buckets)
+            paid_customers = snap.lines.filter(
+                d1_30=0, d31_60=0, d61_90=0, d91_120=0,
+                d121_150=0, d151_180=0, d181_210=0, d211_240=0,
+                d241_270=0, d271_300=0, d301_330=0, over_330=0,
+            ).count()
+
+            overdue_customers = total_customers - paid_customers
+
+            result.append({
+                "snapshot_id":        str(snap.id),
+                "label":              str(snap.report_date or snap.uploaded_at.date()),
+                "total_amount":       round(total_amount, 2),
+                "current_amount":     round(current_amount, 2),
+                "overdue_amount":     round(overdue_amount, 2),
+                "collected_rate":     round(current_amount / total_amount * 100, 1),
+                "overdue_rate":       round(overdue_amount / total_amount * 100, 1),
+                "total_customers":    total_customers,
+                "paid_customers":     paid_customers,
+                "overdue_customers":  overdue_customers,
+                "paid_pct":           round(paid_customers / total_customers * 100, 1) if total_customers else 0,
+                "overdue_pct":        round(overdue_customers / total_customers * 100, 1) if total_customers else 0,
+            })
+
+        return Response({"count": len(result), "trend": result})
