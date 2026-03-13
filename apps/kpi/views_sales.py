@@ -16,7 +16,7 @@ from decimal import Decimal
 from datetime import date, timedelta
 from calendar import monthrange
 
-from django.db.models import Sum, Count, Q, FloatField
+from django.db.models import Sum, Count, Q, F, Value, DecimalField, ExpressionWrapper
 from django.db.models.functions import Coalesce, TruncMonth
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 SALE_TYPES = ["ف بيع"]
 PURCHASE_TYPES = ["ف شراء", "ادخال رئيسي"]
-CASH_FILTER = Q(customer_name__icontains="نقدي") | Q(customer_name__icontains="قطاعي")
 
 CALENDAR_MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -85,6 +84,19 @@ class SalesKPIView(APIView):
         sales_qs      = base_qs.filter(movement_type__in=SALE_TYPES)
         sales_period  = sales_qs.filter(movement_date__gte=period_from, movement_date__lte=period_to)
         sales_prev    = sales_qs.filter(movement_date__gte=prev_from,   movement_date__lte=prev_to)
+
+        zero_decimal = Value(
+            Decimal("0.0000"),
+            output_field=DecimalField(max_digits=18, decimal_places=4),
+        )
+        profit_expression = ExpressionWrapper(
+            (
+                Coalesce(F("price_out"), zero_decimal)
+                - Coalesce(F("balance_price"), zero_decimal)
+            )
+            * Coalesce(F("qty_out"), zero_decimal),
+            output_field=DecimalField(max_digits=18, decimal_places=4),
+        )
 
         # ── 1.1 Chiffre d'affaires ─────────────────────────────────────────────
         ca_total = float(
@@ -150,70 +162,50 @@ class SalesKPIView(APIView):
             for row in monthly_qs
         ]
 
-        # ── 1.5 Marge par produit (Gross Margin) ───────────────────────────────
-        # Gross Margin per item (%) ≈ [(price_out − balance_price) ÷ price_out] × 100
-        margin_data = {}  # {material_code: {"name": str, "margins": [list], "revenue": float}}
-
-        margin_qs = (
+        # ── 1.5 Profitabilité produit (réelle) ────────────────────────────────
+        top_margins_qs = (
             sales_period
-            .values("material_code", "material_name", "price_out", "balance_price", "total_out")
-            .filter(price_out__isnull=False)
+            .values("material_code", "material_name")
+            .annotate(
+                total_revenue=Coalesce(Sum("total_out"), Decimal("0")),
+                total_qty=Coalesce(Sum("qty_out"), Decimal("0")),
+                total_profit=Coalesce(Sum(profit_expression), Decimal("0")),
+            )
+            .order_by("-total_revenue")
         )
 
-        for row in margin_qs:
-            code = row["material_code"]
-            name = row["material_name"]
-            price_out = float(row["price_out"]) if row["price_out"] else 0.0
-            balance_price = float(row["balance_price"]) if row["balance_price"] else 0.0
-            revenue = float(row["total_out"]) if row["total_out"] else 0.0
-
-            # Calculate margin for this item: [(price_out - balance_price) / price_out] × 100
-            if price_out > 0:
-                margin_pct = ((price_out - balance_price) / price_out) * 100
-            else:
-                margin_pct = None
-
-            if code not in margin_data:
-                margin_data[code] = {
-                    "name": name,
-                    "margins": [],
-                    "revenue": 0.0,
-                }
-
-            if margin_pct is not None:
-                margin_data[code]["margins"].append(margin_pct)
-            margin_data[code]["revenue"] += revenue
-
-        # Calculate average margin per product and sort by revenue
         top_margins = []
-        for code, data in sorted(margin_data.items(), key=lambda x: -x[1]["revenue"])[:top_n]:
-            margins = [m for m in data["margins"] if m is not None]
-            avg_margin = round(sum(margins) / len(margins), 2) if margins else None
-
+        for row in top_margins_qs:
+            total_revenue = float(row["total_revenue"] or 0)
+            total_profit = float(row["total_profit"] or 0)
             top_margins.append({
-                "material_code": code,
-                "material_name": data["name"],
-                "revenue":       round(data["revenue"], 2),
-                "margin_pct":    avg_margin,
+                "material_code": row["material_code"],
+                "material_name": row["material_name"],
+                "total_revenue": round(total_revenue, 2),
+                "total_qty": float(row["total_qty"] or 0),
+                "total_profit": round(total_profit, 2),
+                "margin_pct": round((total_profit / total_revenue) * 100, 2)
+                if total_revenue > 0 else None,
             })
 
         # ── 1.6 Top clients ────────────────────────────────────────────────────
         top_clients_qs = (
             sales_period
-            .exclude(CASH_FILTER)
             .exclude(Q(customer_name__isnull=True) | Q(customer_name=""))
             .values("customer_name")
             .annotate(
                 total_revenue=Coalesce(Sum("total_out"), Decimal("0")),
+                total_profit=Coalesce(Sum(profit_expression), Decimal("0")),
                 transaction_count=Count("id"),
             )
-            .order_by("-total_revenue")[:top_n]
+            .order_by("-total_profit", "-total_revenue")[:top_n]
         )
 
         top_clients = [
             {
                 "customer_name":     row["customer_name"],
                 "total_revenue":     float(row["total_revenue"]),
+                "total_profit":      float(row["total_profit"] or 0),
                 "transaction_count": row["transaction_count"],
                 "revenue_share":     round(float(row["total_revenue"]) / ca_total * 100, 2)
                                      if ca_total > 0 else 0.0,

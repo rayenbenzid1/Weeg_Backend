@@ -1,5 +1,7 @@
-from django.db.models import Q, Sum, Count
-from django.db.models.functions import TruncMonth
+from decimal import Decimal
+
+from django.db.models import Q, Sum, Count, F, Value, DecimalField, ExpressionWrapper
+from django.db.models.functions import TruncMonth, Coalesce
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -172,7 +174,9 @@ class TransactionBranchesView(APIView):
 class TransactionSummaryView(APIView):
     """
     GET /api/transactions/summary/
-    Monthly aggregated sales vs purchases.
+    Monthly aggregated sales vs purchases, with gross profit computed from
+    sale movements using:
+        (price_out - balance_price) * qty_out
 
     Query params:
         year=<int>
@@ -184,6 +188,19 @@ class TransactionSummaryView(APIView):
 
     def get(self, request):
         qs = MaterialMovement.objects.filter(company=request.user.company)
+
+        zero_decimal = Value(
+            Decimal("0.0000"),
+            output_field=DecimalField(max_digits=18, decimal_places=4),
+        )
+        profit_expression = ExpressionWrapper(
+            (
+                Coalesce(F("price_out"), zero_decimal)
+                - Coalesce(F("balance_price"), zero_decimal)
+            )
+            * Coalesce(F("qty_out"), zero_decimal),
+            output_field=DecimalField(max_digits=18, decimal_places=4),
+        )
 
         year      = request.query_params.get("year")
         date_from = request.query_params.get("date_from")
@@ -205,6 +222,8 @@ class TransactionSummaryView(APIView):
             .annotate(
                 total_out_value=Sum("total_out"),
                 total_in_value=Sum("total_in"),
+                total_profit=Sum(profit_expression),
+                qty_out_value=Sum("qty_out"),
                 row_count=Count("id"),
             )
             .order_by("month")
@@ -220,12 +239,16 @@ class TransactionSummaryView(APIView):
                     "month_label":     CALENDAR_MONTHS[row["month"].month],
                     "total_sales":     0,
                     "total_purchases": 0,
+                    "total_profit":    0,
+                    "total_qty":       0,
                     "sales_count":     0,
                     "purchases_count": 0,
                 }
             mt = row["movement_type"]
             if mt in SALE_TYPES or mt in RETURN_SALE_TYPES:
                 pivot[key]["total_sales"]  += float(row["total_out_value"] or 0)
+                pivot[key]["total_profit"] += float(row["total_profit"] or 0)
+                pivot[key]["total_qty"]    += float(row["qty_out_value"] or 0)
                 pivot[key]["sales_count"]  += row["row_count"]
             elif mt in PURCHASE_TYPES or mt in RETURN_PURCHASE_TYPES:
                 pivot[key]["total_purchases"] += float(row["total_in_value"] or 0)
@@ -282,6 +305,7 @@ class TransactionBranchBreakdownView(APIView):
 
     Query params:
         movement_type=<arabic_value>   — default: "ف بيع"
+        year=<int>
         date_from / date_to
     """
 
@@ -291,6 +315,7 @@ class TransactionBranchBreakdownView(APIView):
 
     def get(self, request):
         movement_type = request.query_params.get("movement_type", "ف بيع")
+        year = request.query_params.get("year")
 
         qs = MaterialMovement.objects.filter(
             company=request.user.company,
@@ -304,12 +329,34 @@ class TransactionBranchBreakdownView(APIView):
         date_to = request.query_params.get("date_to")
         if date_to:
             qs = qs.filter(movement_date__lte=date_to)
+        if year and not date_from and not date_to:
+            try:
+                qs = qs.filter(movement_date__year=int(year))
+            except ValueError:
+                pass
 
         value_field = "total_in" if movement_type in self.PURCHASE_TYPES else "total_out"
 
+        zero_decimal = Value(
+            Decimal("0.0000"),
+            output_field=DecimalField(max_digits=18, decimal_places=4),
+        )
+        profit_expression = ExpressionWrapper(
+            (
+                Coalesce(F("price_out"), zero_decimal)
+                - Coalesce(F("balance_price"), zero_decimal)
+            )
+            * Coalesce(F("qty_out"), zero_decimal),
+            output_field=DecimalField(max_digits=18, decimal_places=4),
+        )
+
         breakdown = (
             qs.values("branch__name")
-            .annotate(count=Count("id"), total=Sum(value_field))
+            .annotate(
+                count=Count("id"),
+                total=Sum(value_field),
+                total_profit=Sum(profit_expression),
+            )
             .order_by("-total")
         )
 
@@ -321,6 +368,7 @@ class TransactionBranchBreakdownView(APIView):
                     "branch": row["branch__name"] or "Unknown",
                     "count":  row["count"],
                     "total":  float(row["total"] or 0),
+                    "total_profit": float(row["total_profit"] or 0),
                 }
                 for row in breakdown
             ],
@@ -334,6 +382,7 @@ class TransactionBranchMonthlyView(APIView):
 
     Query params:
         movement_type=<arabic_value>  — default: "ف بيع"
+        metric=<revenue|profit>       — default: revenue
         year=<int>
         date_from=YYYY-MM-DD
         date_to=YYYY-MM-DD
@@ -341,8 +390,11 @@ class TransactionBranchMonthlyView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    PURCHASE_TYPES = {"ف شراء", "مردود شراء", "ادخال رئيسي"}
+
     def get(self, request):
         movement_type = request.query_params.get("movement_type", "ف بيع")
+        metric = request.query_params.get("metric", "revenue").lower()
         year      = request.query_params.get("year")
         date_from = request.query_params.get("date_from")
         date_to   = request.query_params.get("date_to")
@@ -362,10 +414,31 @@ class TransactionBranchMonthlyView(APIView):
             except ValueError:
                 pass
 
+        zero_decimal = Value(
+            Decimal("0.0000"),
+            output_field=DecimalField(max_digits=18, decimal_places=4),
+        )
+        profit_expression = ExpressionWrapper(
+            (
+                Coalesce(F("price_out"), zero_decimal)
+                - Coalesce(F("balance_price"), zero_decimal)
+            )
+            * Coalesce(F("qty_out"), zero_decimal),
+            output_field=DecimalField(max_digits=18, decimal_places=4),
+        )
+
+        if metric == "profit":
+            value_annotation = Sum(profit_expression)
+        else:
+            # Revenue-like monthly value depends on movement direction.
+            # Purchases are recorded in total_in, sales in total_out.
+            value_field = "total_in" if movement_type in self.PURCHASE_TYPES else "total_out"
+            value_annotation = Sum(value_field)
+
         rows = (
             qs.annotate(month=TruncMonth("movement_date"))
             .values("month", "branch__name")
-            .annotate(total=Sum("total_out"), count=Count("id"))
+            .annotate(total=value_annotation, count=Count("id"))
             .order_by("month", "branch__name")
         )
 
@@ -391,6 +464,7 @@ class TransactionBranchMonthlyView(APIView):
 
         return Response({
             "movement_type": movement_type,
+            "metric":        metric,
             "branches":      sorted(list(branches)),
             "monthly_data":  sorted_data,
         })
