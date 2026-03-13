@@ -56,26 +56,26 @@ class EmailService:
 
             <!-- Body -->
             <div style="padding:30px;">
-              <h2 style="color:#1e293b; margin-top:0;">🔔 New Manager Access Request</h2>
+              <h2 style="color:#1e293b; margin-top:0;"> New Manager Access Request</h2>
               <p style="color:#475569;">A new manager has created an account and is waiting for your approval.</p>
 
               <!-- Info Card -->
               <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:20px; margin:20px 0;">
                 <table style="width:100%; border-collapse:collapse;">
                   <tr>
-                    <td style="padding:8px 0; color:#64748b; width:120px;">👤 Name</td>
+                    <td style="padding:8px 0; color:#64748b; width:120px;"> Name</td>
                     <td style="padding:8px 0; color:#1e293b; font-weight:bold;">{manager.full_name}</td>
                   </tr>
                   <tr>
-                    <td style="padding:8px 0; color:#64748b;">📧 Email</td>
+                    <td style="padding:8px 0; color:#64748b;"> Email</td>
                     <td style="padding:8px 0; color:#1e293b;">{manager.email}</td>
                   </tr>
                   <tr>
-                    <td style="padding:8px 0; color:#64748b;">📞 Phone</td>
+                    <td style="padding:8px 0; color:#64748b;"> Phone</td>
                     <td style="padding:8px 0; color:#1e293b;">{manager.phone_number or 'Not provided'}</td>
                   </tr>
                   <tr>
-                    <td style="padding:8px 0; color:#64748b;">🏢 Company</td>
+                    <td style="padding:8px 0; color:#64748b;"> Company</td>
                     <td style="padding:8px 0; color:#1e293b;">{company_name}</td>
                   </tr>
                 </table>
@@ -87,7 +87,7 @@ class EmailService:
                    style="display:inline-block; background:linear-gradient(135deg,#4f46e5,#7c3aed); color:#fff;
                           text-decoration:none; padding:14px 32px; border-radius:8px; font-weight:bold;
                           font-size:16px; letter-spacing:0.5px;">
-                  ✅ Review Request in WEEG
+                   Review Request in WEEG
                 </a>
               </div>
 
@@ -143,7 +143,7 @@ class EmailService:
               <h1 style="color:#fff;margin:0;">WEEG</h1>
             </div>
             <div style="padding:30px;">
-              <h2 style="color:#16a34a;">✅ Account Approved!</h2>
+              <h2 style="color:#16a34a;"> Account Approved!</h2>
               <p style="color:#475569;">Hello <strong>{manager.first_name}</strong>,</p>
               <p style="color:#475569;">Great news! Your Manager account on the WEEG platform has been <strong>approved</strong>.</p>
               <p style="color:#475569;">You can now log in and start using the platform.</p>
@@ -187,7 +187,7 @@ class EmailService:
               <h1 style="color:#fff;margin:0;">WEEG</h1>
             </div>
             <div style="padding:30px;">
-              <h2 style="color:#dc2626;">❌ Request Not Approved</h2>
+              <h2 style="color:#dc2626;"> Request Not Approved</h2>
               <p style="color:#475569;">Hello <strong>{manager.first_name}</strong>,</p>
               <p style="color:#475569;">We have reviewed your access request to the WEEG platform.</p>
               <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin:20px 0;">
@@ -234,7 +234,7 @@ class EmailService:
               <h1 style="color:#fff;margin:0;">WEEG</h1>
             </div>
             <div style="padding:30px;">
-              <h2 style="color:#1e293b;">🎉 Welcome to WEEG!</h2>
+              <h2 style="color:#1e293b;"> Welcome to WEEG!</h2>
               <p style="color:#475569;">Hello <strong>{agent.first_name}</strong>,</p>
               <p style="color:#475569;">Your agent account has been created by <strong>{created_by.full_name}</strong> ({company_name}).</p>
 
@@ -242,18 +242,18 @@ class EmailService:
                 <p style="color:#15803d;font-weight:bold;margin:0 0 12px;">Your login credentials:</p>
                 <table style="width:100%;">
                   <tr>
-                    <td style="color:#64748b;padding:4px 0;">📧 Email:</td>
+                    <td style="color:#64748b;padding:4px 0;"> Email:</td>
                     <td style="color:#1e293b;font-weight:bold;">{agent.email}</td>
                   </tr>
                   <tr>
-                    <td style="color:#64748b;padding:4px 0;">🔑 Password:</td>
+                    <td style="color:#64748b;padding:4px 0;"> Password:</td>
                     <td style="color:#1e293b;font-weight:bold;font-family:monospace;font-size:16px;">{temporary_password}</td>
                   </tr>
                 </table>
               </div>
 
               <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px;margin:16px 0;">
-                <p style="color:#92400e;margin:0;">⚠️ <strong>Important:</strong> You will need to change this temporary password on your first login.</p>
+                <p style="color:#92400e;margin:0;"> <strong>Important:</strong> You will need to change this temporary password on your first login.</p>
               </div>
 
               <div style="text-align:center;margin:30px 0;">
@@ -297,7 +297,7 @@ class EmailService:
               <h1 style="color:#fff;margin:0;">WEEG</h1>
             </div>
             <div style="padding:30px;">
-              <h2 style="color:#1e293b;">🔐 Password Reset</h2>
+              <h2 style="color:#1e293b;"> Password Reset</h2>
               <p style="color:#475569;">Hello <strong>{user.first_name}</strong>,</p>
               <p style="color:#475569;">A password reset request has been made for your account.</p>
               <div style="text-align:center;margin:30px 0;">
@@ -307,7 +307,7 @@ class EmailService:
                   Reset My Password
                 </a>
               </div>
-              <p style="color:#94a3b8;font-size:13px;text-align:center;">⏱️ This link expires in <strong>1 hour</strong>.</p>
+              <p style="color:#94a3b8;font-size:13px;text-align:center;"> This link expires in <strong>1 hour</strong>.</p>
               <p style="color:#94a3b8;font-size:13px;text-align:center;">If you did not request this reset, please ignore this email.</p>
             </div>
             <div style="background:#f8fafc;padding:20px;text-align:center;border-top:1px solid #e2e8f0;">
@@ -342,11 +342,11 @@ class EmailService:
               <h1 style="color:#fff;margin:0;">WEEG</h1>
             </div>
             <div style="padding:30px;">
-              <h2 style="color:#16a34a;">🔒 Password Changed</h2>
+              <h2 style="color:#16a34a;"> Password Changed</h2>
               <p style="color:#475569;">Hello <strong>{user.first_name}</strong>,</p>
               <p style="color:#475569;">Your password has been successfully changed.</p>
               <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin:16px 0;">
-                <p style="color:#dc2626;margin:0;">⚠️ If you are not the one who made this change, contact your administrator immediately.</p>
+                <p style="color:#dc2626;margin:0;"> If you are not the one who made this change, contact your administrator immediately.</p>
               </div>
             </div>
             <div style="background:#f8fafc;padding:20px;text-align:center;border-top:1px solid #e2e8f0;">

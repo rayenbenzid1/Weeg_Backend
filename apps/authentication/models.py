@@ -154,7 +154,7 @@ class User(AbstractUser):
         blank=True,
         related_name="users",
         verbose_name="Company",
-        help_text="Company the user belongs to. Null for admins.",
+        help_text="Company the user belongs to. Null for admins .",
     )
 
     # -------------------------------------------------------------------------

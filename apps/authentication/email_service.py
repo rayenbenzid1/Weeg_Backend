@@ -104,7 +104,7 @@ def notify_admin_new_manager(manager) -> bool:
 
                 <!-- ── Manager Info ── -->
                 <p style="color:#111827;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">
-                  👤 Manager Information
+                   Manager Information
                 </p>
                 <table width="100%" cellpadding="0" cellspacing="0"
                   style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:20px;">
@@ -128,7 +128,7 @@ def notify_admin_new_manager(manager) -> bool:
 
                 <!-- ── Company Info ── -->
                 <p style="color:#111827;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">
-                  🏢 Company Information
+                   Company Information
                 </p>
                 <table width="100%" cellpadding="0" cellspacing="0"
                   style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;margin-bottom:28px;">

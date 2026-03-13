@@ -102,58 +102,6 @@ class ChangePasswordView(APIView):
             status=status.HTTP_200_OK,
         )
 
-
-# class CreateAgentView(APIView):
-#     """
-#     POST /api/auth/agents/
-
-#     Allows a manager to create an agent account.
-#     The manager can only create agents for their own branch.
-
-#     Request body:
-#         - email, first_name, last_name, phone_number
-#         - branch: UUID of the branch (must be the manager's)
-#         - permissions_list: list of permissions to grant
-#         - temporary_password: temporary password
-
-#     Upon success:
-#         - Agent account created with must_change_password = True
-#         - Email with credentials sent to the agent
-#     """
-#     permission_classes = [IsAuthenticated, IsManager]
-
-#     def post(self, request):
-#         serializer = CreateAgentSerializer(
-#             data=request.data,
-#             context={"request": request},
-#         )
-#         if not serializer.is_valid():
-#             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-#         # Check that the branch belongs to the logged-in manager
-#         branch = serializer.validated_data.get("branch")
-#         if branch and request.user.branch and branch.id != request.user.branch.id:
-#             return Response(
-#                 {"error": "You can only create agents for your own branch."},
-#                 status=status.HTTP_403_FORBIDDEN,
-#             )
-
-#         temporary_password = request.data.get("temporary_password")
-#         agent = UserService.create_agent(
-#             validated_data=serializer.validated_data,
-#             manager=request.user,
-#             temporary_password=temporary_password,
-#         )
-
-#         return Response(
-#             {
-#                 "message": f"Agent account created successfully. "
-#                            f"Credentials have been sent to {agent.email}.",
-#                 "agent": UserListSerializer(agent).data,
-#             },
-#             status=status.HTTP_201_CREATED,
-#         )
-
 class CreateAgentView(APIView):
     """
     POST /api/users/agents/create/
@@ -185,39 +133,6 @@ class CreateAgentView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
-
-# class AgentListView(APIView):
-#     """
-#     GET /api/users/agents/
-
-#     ✅ Manager → sees only agents from THEIR branch.
-#     ✅ Admin   → sees ALL agents from all branches.
-#     ❌ Agent   → 403 Forbidden.
-#     """
-#     permission_classes = [IsAuthenticated, IsAdminOrManager]
-
-#     def get(self, request):
-#         if request.user.is_admin:
-#             # Admin sees all agents from all branches
-#             agents = User.objects.filter(
-#                 role=User.Role.AGENT,
-#             ).order_by("-created_at")
-#         else:
-#             # Manager sees only agents from their branch
-#             agents = User.objects.filter(
-#                 role=User.Role.AGENT,
-#                 branch=request.user.branch,
-#             ).order_by("-created_at")
-
-#         serializer = UserListSerializer(agents, many=True)
-#         return Response(
-#             {
-#                 "count": agents.count(),
-#                 "agents": serializer.data,
-#             },
-#             status=status.HTTP_200_OK,
-#         )
-
 
 class AgentListView(APIView):
     """
@@ -329,15 +244,15 @@ class UpdateUserPermissionsView(APIView):
     PATCH /api/users/users/{id}/permissions/
 
     Access rules:
-        ✅ Manager → can modify permissions of THEIR agents only.
-        ❌ Admin   → does NOT have the right to modify agent permissions.
-        ❌ Agent   → Access denied (IsAdminOrManager blocks).
+         Manager → can modify permissions of THEIR agents only.
+         Admin   → does NOT have the right to modify agent permissions.
+         Agent   → Access denied (IsAdminOrManager blocks).
 
     To view agents, admin uses GET /api/users/users/?role=agent.
     (SCRUM-20)
     """
-    # ✅ Keep IsAdminOrManager to block agents (403)
-    # ❌ But add explicit check: admin cannot modify agents
+    # Keep IsAdminOrManager to block agents (403)
+    # But add explicit check: admin cannot modify agents
     permission_classes = [IsAuthenticated, IsAdminOrManager]
 
     def patch(self, request, user_id):
@@ -349,7 +264,7 @@ class UpdateUserPermissionsView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # ✅ MODIFICATION: Admin cannot modify agent permissions
+        #  MODIFICATION: Admin cannot modify agent permissions
         if request.user.is_admin:
             if target_user.role == User.Role.AGENT:
                 return Response(
@@ -357,7 +272,7 @@ class UpdateUserPermissionsView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
-        # ✅ Manager can only modify permissions of THEIR own agents
+        #  Manager can only modify permissions of THEIR own agents
         if request.user.is_manager:
             if target_user.role != User.Role.AGENT or target_user.company != request.user.company:
                 return Response(

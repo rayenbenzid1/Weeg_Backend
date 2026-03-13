@@ -66,7 +66,7 @@ def _send_reset_code_email(user, code: str) -> bool:
           <h1 style="color:#fff;margin:0;font-size:28px;font-weight:bold;">WEEG</h1>
         </div>
         <div style="padding:30px;">
-          <h2 style="color:#1e293b;">🔐 Password Reset</h2>
+          <h2 style="color:#1e293b;"> Password Reset</h2>
           <p style="color:#475569;">Hello <strong>{user.first_name}</strong>,</p>
           <p style="color:#475569;">
             You requested a password reset.
@@ -84,7 +84,7 @@ def _send_reset_code_email(user, code: str) -> bool:
           </div>
 
           <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px;margin:16px 0;text-align:center;">
-            <p style="color:#92400e;margin:0;">⏱️ This code expires in <strong>10 minutes</strong></p>
+            <p style="color:#92400e;margin:0;"> This code expires in <strong>10 minutes</strong></p>
           </div>
 
           <p style="color:#94a3b8;font-size:13px;text-align:center;">
