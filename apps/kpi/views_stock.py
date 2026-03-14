@@ -8,9 +8,19 @@ Stock KPIs:
   2.4 Rupture de stock (zero stock products)
   2.5 Taux de couverture du stock
 
-FIX: Join sales → inventory by material_name (NOT material_code).
-     Movements file uses short codes (e.g. "EC0020") while inventory
-     uses full codes (e.g. "AS-FD-In-AD-EC0020") → code join = 0% match.
+FORMULA (corrected):
+  Taux de rotation = Quantité Vendue / (Stock Initial + Achats)
+
+  Where (all read from transactions_movement for the given year):
+    - Stock Initial = SUM(qty_in)  WHERE movement_type = 'ف.أول المدة'
+    - Achats        = SUM(qty_in)  WHERE movement_type = 'ف شراء'
+    - Quantité vendue = SUM(qty_out) WHERE movement_type = 'ف بيع'
+
+  All three are grouped by material_name (same join key used elsewhere).
+
+FIX: Join sales/opening/purchases → inventory by material_name (NOT material_code).
+     Movements file uses short codes (e.g. "EC0020") while inventory uses full codes
+     (e.g. "AS-FD-In-AD-EC0020") → code join = 0% match.
      Product names are identical in both files → use name as join key.
 
 FIX2: avg_unit_cost computed in Python (not chained ORM annotation)
@@ -21,7 +31,7 @@ import logging
 from decimal import Decimal
 from datetime import date
 
-from django.db.models import Sum, Case, When, DecimalField
+from django.db.models import Sum, DecimalField
 from django.db.models.functions import Coalesce
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -29,10 +39,13 @@ from rest_framework.views import APIView
 
 logger = logging.getLogger(__name__)
 
-SALE_TYPES = ["ف بيع"]
+SALE_TYPES            = ["ف بيع"]
+OPENING_BALANCE_TYPES = ["ف.أول المدة"]
+PURCHASE_TYPES        = ["ف شراء"]
+
 LOW_ROTATION_THRESHOLD = 0.5
 DEFAULT_LEAD_TIME_DAYS = 14
-SAFETY_FACTOR = 0.5
+SAFETY_FACTOR          = 0.5
 
 
 class StockKPIView(APIView):
@@ -40,7 +53,7 @@ class StockKPIView(APIView):
     GET /api/kpi/stock/
 
     Query params:
-        year=<int>                     — year for sales data (default: snapshot year)
+        year=<int>                     — year for sales/purchases data (default: current year)
         low_rotation_threshold=<float> — rotation threshold (default: 0.5)
     """
 
@@ -49,7 +62,6 @@ class StockKPIView(APIView):
     def get(self, request):
         from apps.inventory.models import InventorySnapshot, InventorySnapshotLine
         from apps.transactions.models import MaterialMovement
-        from django.db.models import Sum, DecimalField
 
         company = request.user.company
 
@@ -60,41 +72,26 @@ class StockKPIView(APIView):
 
         period_from = date(year, 1, 1)
         period_to   = date(year, 12, 31)
-        n_days = (period_to - period_from).days + 1
+        n_days      = (period_to - period_from).days + 1
 
-        # ── Inventory lines aggregated by product_name ───────────────────────
-        # avg_unit_cost is computed in Python below to avoid chained-annotation
-        # NameError (annotated aliases can't be referenced in the same queryset).
-        inv_lines = (
-            InventorySnapshotLine.objects
-            .filter(
-                snapshot__company=company,
-            )
-            .values("product_name", "product_code", "product_category")
-            .annotate(
-                total_qty=Coalesce(Sum("quantity"), Decimal("0")),
-                total_value=Coalesce(Sum("line_value"), Decimal("0")),
-                qty_sum=Coalesce(Sum("quantity", output_field=DecimalField()), Decimal("0")),
-                unit_cost_sum=Coalesce(Sum("unit_cost", output_field=DecimalField()), Decimal("0")),
-            )
+        # ── Base movement queryset for the period ────────────────────────────
+        base_mvt = MaterialMovement.objects.filter(
+            company=company,
+            movement_date__gte=period_from,
+            movement_date__lte=period_to,
         )
 
-        # ── Sales grouped by material_name (FIX: not material_code) ─────────
-        sales_by_name = {}
+        # ── 1. Quantité vendue — grouped by material_name ────────────────────
         sales_qs = (
-            MaterialMovement.objects
-            .filter(
-                company=company,
-                movement_type__in=SALE_TYPES,
-                movement_date__gte=period_from,
-                movement_date__lte=period_to,
-            )
+            base_mvt
+            .filter(movement_type__in=SALE_TYPES)
             .values("material_name")
             .annotate(
                 qty_sold=Coalesce(Sum("qty_out"), Decimal("0")),
                 revenue=Coalesce(Sum("total_out"), Decimal("0")),
             )
         )
+        sales_by_name: dict = {}
         for row in sales_qs:
             key = (row["material_name"] or "").strip().lower()
             if key:
@@ -103,7 +100,54 @@ class StockKPIView(APIView):
                     "revenue":  float(row["revenue"]),
                 }
 
-        # ── Per-product KPIs ─────────────────────────────────────────────────
+        # ── 2. Stock Initial — ف.أول المدة, grouped by material_name ─────────
+        opening_qs = (
+            base_mvt
+            .filter(movement_type__in=OPENING_BALANCE_TYPES)
+            .values("material_name")
+            .annotate(
+                qty_opening=Coalesce(Sum("qty_in"), Decimal("0")),
+            )
+        )
+        opening_by_name: dict = {}
+        for row in opening_qs:
+            key = (row["material_name"] or "").strip().lower()
+            if key:
+                opening_by_name[key] = float(row["qty_opening"])
+
+        # ── 3. Achats — ف شراء, grouped by material_name ────────────────────
+        purchase_qs = (
+            base_mvt
+            .filter(movement_type__in=PURCHASE_TYPES)
+            .values("material_name")
+            .annotate(
+                qty_purchased=Coalesce(Sum("qty_in"), Decimal("0")),
+            )
+        )
+        purchase_by_name: dict = {}
+        for row in purchase_qs:
+            key = (row["material_name"] or "").strip().lower()
+            if key:
+                purchase_by_name[key] = float(row["qty_purchased"])
+
+        # ── 4. Inventory snapshot lines — grouped by product_name ────────────
+        inv_lines = (
+            InventorySnapshotLine.objects
+            .filter(snapshot__company=company)
+            .values("product_name", "product_code", "product_category")
+            .annotate(
+                total_qty=Coalesce(Sum("quantity"), Decimal("0")),
+                total_value=Coalesce(Sum("line_value"), Decimal("0")),
+                qty_sum=Coalesce(
+                    Sum("quantity", output_field=DecimalField()), Decimal("0")
+                ),
+                unit_cost_sum=Coalesce(
+                    Sum("unit_cost", output_field=DecimalField()), Decimal("0")
+                ),
+            )
+        )
+
+        # ── 5. Per-product KPIs ──────────────────────────────────────────────
         all_products      = []
         zero_stock        = []
         low_rotation      = []
@@ -111,13 +155,13 @@ class StockKPIView(APIView):
         total_stock_qty   = 0.0
 
         for line in inv_lines:
-            stock_qty  = float(line["total_qty"])
-            stock_val  = float(line["total_value"])
-            product_name     = line["product_name"] or ""
-            product_code     = line["product_code"] or ""
+            stock_qty        = float(line["total_qty"])
+            stock_val        = float(line["total_value"])
+            product_name     = line["product_name"]     or ""
+            product_code     = line["product_code"]     or ""
             product_category = line["product_category"] or ""
 
-            # avg_unit_cost computed in Python to avoid chained-annotation bug
+            # avg_unit_cost in Python to avoid chained-annotation NameError
             qty_sum       = float(line["qty_sum"])
             unit_cost_sum = float(line["unit_cost_sum"])
             cost_price    = (unit_cost_sum / qty_sum) if qty_sum > 0 else 0.0
@@ -125,20 +169,46 @@ class StockKPIView(APIView):
             total_stock_value += stock_val
             total_stock_qty   += stock_qty
 
-            # Join by name (normalized)
-            name_key = product_name.strip().lower()
-            sales    = sales_by_name.get(name_key, {"qty_sold": 0.0, "revenue": 0.0})
-            qty_sold = sales["qty_sold"]
+            name_key  = product_name.strip().lower()
+            sales     = sales_by_name.get(name_key, {"qty_sold": 0.0, "revenue": 0.0})
+            qty_sold  = sales["qty_sold"]
 
-            monthly_usage = qty_sold / 12.0
-            safety_stock  = monthly_usage * SAFETY_FACTOR
-            min_stock     = int(round(monthly_usage * (DEFAULT_LEAD_TIME_DAYS / 30.0) + safety_stock))
-            max_stock     = int(round(monthly_usage * 3))
-            reorder_qty   = max(0.0, max_stock - stock_qty)
+            # ── CORRECTED ROTATION FORMULA ────────────────────────────────────
+            # Taux de rotation = Quantité vendue / (Stock Initial + Achats)
+            #
+            # Stock Initial = opening balance qty (ف.أول المدة)
+            # Achats        = purchased qty      (ف شراء)
+            #
+            # If opening balance and purchases are both 0 for this product
+            # (e.g. the product was already in stock before the year started
+            # and nothing was bought this year), fall back to the current
+            # snapshot stock_qty so the ratio stays meaningful.
+            qty_opening  = opening_by_name.get(name_key, 0.0)
+            qty_purchased = purchase_by_name.get(name_key, 0.0)
+            denominator  = qty_opening + qty_purchased
 
-            rotation_rate   = round(qty_sold / stock_qty, 4) if stock_qty > 0 else 0.0
+            if denominator > 0:
+                rotation_rate = round(qty_sold / denominator, 4)
+            elif stock_qty > 0:
+                # Fallback: use current snapshot stock when no movement data
+                rotation_rate = round(qty_sold / stock_qty, 4)
+            else:
+                rotation_rate = 0.0
+
+            # ── Other KPIs ────────────────────────────────────────────────────
+            monthly_usage   = qty_sold / 12.0
+            safety_stock    = monthly_usage * SAFETY_FACTOR
+            min_stock       = int(round(
+                monthly_usage * (DEFAULT_LEAD_TIME_DAYS / 30.0) + safety_stock
+            ))
+            max_stock       = int(round(monthly_usage * 3))
+            reorder_qty     = max(0.0, max_stock - stock_qty)
+
             avg_daily_sales = qty_sold / n_days if n_days > 0 else 0
-            coverage_days   = round(stock_qty / avg_daily_sales, 1) if avg_daily_sales > 0 else None
+            coverage_days   = (
+                round(stock_qty / avg_daily_sales, 1)
+                if avg_daily_sales > 0 else None
+            )
             days_of_stock   = (
                 round((stock_qty / monthly_usage) * 30)
                 if monthly_usage > 0 else None
@@ -160,10 +230,14 @@ class StockKPIView(APIView):
                 "stock_qty":      stock_qty,
                 "stock_value":    stock_val,
                 "cost_price":     cost_price,
+                # Rotation components (visible in UI for transparency)
                 "qty_sold":       qty_sold,
+                "qty_opening":    qty_opening,
+                "qty_purchased":  qty_purchased,
+                "denominator":    denominator,        # Stock Initial + Achats
                 "monthly_usage":  round(monthly_usage, 2),
                 "revenue":        sales["revenue"],
-                "rotation_rate":  rotation_rate,
+                "rotation_rate":  rotation_rate,      # corrected formula
                 "coverage_days":  coverage_days,
                 "min_stock":      min_stock,
                 "max_stock":      max_stock,
@@ -183,14 +257,16 @@ class StockKPIView(APIView):
 
             if stock_qty > 0 and rotation_rate < rotation_threshold:
                 low_rotation.append({
-                    "material_code": product_code,
-                    "product_name":  product_name,
-                    "category":      product_category,
-                    "stock_qty":     stock_qty,
-                    "stock_value":   stock_val,
-                    "qty_sold":      qty_sold,
-                    "rotation_rate": rotation_rate,
-                    "coverage_days": coverage_days,
+                    "material_code":  product_code,
+                    "product_name":   product_name,
+                    "category":       product_category,
+                    "stock_qty":      stock_qty,
+                    "stock_value":    stock_val,
+                    "qty_sold":       qty_sold,
+                    "qty_opening":    qty_opening,
+                    "qty_purchased":  qty_purchased,
+                    "rotation_rate":  rotation_rate,
+                    "coverage_days":  coverage_days,
                 })
 
         low_rotation.sort(key=lambda x: -x["stock_value"])
@@ -210,6 +286,7 @@ class StockKPIView(APIView):
             "snapshot_date": None,
             "year":          year,
             "period":        {"from": str(period_from), "to": str(period_to)},
+            "rotation_formula": "qty_sold / (stock_initial + achats)",
             "stock_summary": {
                 "total_products":     len(all_products),
                 "total_stock_qty":    round(total_stock_qty, 2),

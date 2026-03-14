@@ -1,5 +1,6 @@
 import logging
 import re
+import unicodedata
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Set
@@ -37,9 +38,22 @@ def _to_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
 
 
 def _to_str(value: Any) -> str:
+    """
+    Convert any cell value to a clean string.
+
+    Applies:
+      - NFC Unicode normalisation  (handles composed/decomposed Arabic)
+      - str.strip()                (removes ALL Unicode whitespace, including
+                                    U+0020 regular space and U+00A0 non-breaking)
+
+    This is the single, authoritative string-cleaning helper used by every
+    parser in this module.  All movement-type values must go through here so
+    that cells like 'ف بيع ' (with a trailing space) are stored as 'ف بيع'.
+    """
     if value is None:
         return ""
-    return str(value).strip()
+    s = unicodedata.normalize("NFC", str(value))
+    return s.strip()
 
 
 def _is_number(value: Any) -> bool:
@@ -231,7 +245,14 @@ class MovementsParser:
                             errors.append({"row": i, "error": f"Invalid date: {row[4]}"})
                         continue
 
-                    movement_type = _to_str(row[5]) if len(row) > 5 else ""
+                    # ── FIX: explicit .strip() on movement_type ──────────────
+                    # _to_str already calls .strip(), but we add an extra
+                    # explicit call here as a belt-and-suspenders guard.
+                    # Some Excel files (e.g. حركة_المادة_الشنت) store the cell
+                    # value as 'ف بيع ' (trailing space).  Without this guard
+                    # those rows are stored with the space and never match
+                    # queries for 'ف بيع', causing branches to vanish from charts.
+                    movement_type = _to_str(row[5]).strip() if len(row) > 5 else ""
 
                     if material_code not in product_cache:
                         product_cache[material_code] = Product.objects.filter(
@@ -264,7 +285,7 @@ class MovementsParser:
                         lab_code=_to_str(row[2]) or None,
                         material_name=_to_str(row[3]),
                         movement_date=movement_date,
-                        movement_type=movement_type,
+                        movement_type=movement_type,   # guaranteed stripped
                         qty_in=_to_decimal(row[6]) if len(row) > 6 else None,
                         price_in=_to_decimal(row[7]) if len(row) > 7 else None,
                         total_in=_to_decimal(row[8]) if len(row) > 8 else None,
@@ -480,7 +501,7 @@ class InventoryParser:
         return {
             "total": len(data_rows),
             "created": lines_created,
-            "products_count": len(data_rows) - len(errors),  # ← produits importés avec succès
+            "products_count": len(data_rows) - len(errors),
             "updated": 0,
             "snapshot_id": str(snapshot.id),
             "inventory_year": inventory_year,
