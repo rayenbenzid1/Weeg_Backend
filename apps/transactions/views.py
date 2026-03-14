@@ -36,13 +36,44 @@ def _strip_param(request, key: str, default: str = "") -> str:
     return request.query_params.get(key, default).strip()
 
 
+def _apply_date_branch_filters(qs, request):
+    """
+    Shared helper — applies date_from, date_to, year, branch filters.
+    Used by Summary, TypeBreakdown, BranchBreakdown, BranchMonthly.
+    ✅ branch uses iexact for exact name matching (avoids false positives
+       when e.g. "Tripoli" would match "Tripoli Est" with icontains).
+    """
+    date_from = _strip_param(request, "date_from")
+    if date_from:
+        qs = qs.filter(movement_date__gte=date_from)
+
+    date_to = _strip_param(request, "date_to")
+    if date_to:
+        qs = qs.filter(movement_date__lte=date_to)
+
+    # ✅ Exact branch filter
+    branch = _strip_param(request, "branch")
+    if branch:
+        qs = qs.filter(branch__name__iexact=branch)
+
+    # Year filter only when no date range is provided
+    year = _strip_param(request, "year")
+    if year and not date_from and not date_to:
+        try:
+            qs = qs.filter(movement_date__year=int(year))
+        except ValueError:
+            pass
+
+    return qs
+
+
 class TransactionListView(APIView):
     """
     GET /api/transactions/
 
     Query params:
         movement_type=<arabic_value>   — exact match on raw Arabic label
-        branch=<str>                   — branch.name icontains
+        branch=<str>                   — branch.name iexact
         search=<str>                   — material_code / material_name / customer_name
         date_from=YYYY-MM-DD
         date_to=YYYY-MM-DD
@@ -64,14 +95,15 @@ class TransactionListView(APIView):
             company=request.user.company
         ).select_related("product", "branch", "customer")
 
-        # ── FIX: always .strip() the movement_type param ────────────────────
+        # ── FIX: always .strip() the movement_type param ─────────────────────
         movement_type = _strip_param(request, "movement_type")
         if movement_type:
             qs = qs.filter(movement_type=movement_type)
 
+        # ✅ Exact branch filter
         branch = _strip_param(request, "branch")
         if branch:
-            qs = qs.filter(branch__name__icontains=branch)
+            qs = qs.filter(branch__name__iexact=branch)
 
         search = _strip_param(request, "search")
         if search:
@@ -94,6 +126,7 @@ class TransactionListView(APIView):
         if ordering in self.ALLOWED_ORDERINGS:
             qs = qs.order_by(ordering)
 
+        # ── Totals computed on the full filtered queryset ─────────────────────
         sale_total_out = (
             qs.filter(movement_type="ف بيع")
             .aggregate(v=Sum("total_out"))["v"] or 0
@@ -193,6 +226,7 @@ class TransactionSummaryView(APIView):
         year=<int>
         date_from=YYYY-MM-DD
         date_to=YYYY-MM-DD
+        branch=<str>          ✅ NEW — filters by branch before aggregating
     """
 
     permission_classes = [IsAuthenticated]
@@ -213,22 +247,8 @@ class TransactionSummaryView(APIView):
             output_field=DecimalField(max_digits=18, decimal_places=4),
         )
 
-        year      = _strip_param(request, "year")
-        date_from = _strip_param(request, "date_from")
-        date_to   = _strip_param(request, "date_to")
-        branch    = _strip_param(request, "branch")
-
-        if date_from:
-            qs = qs.filter(movement_date__gte=date_from)
-        if date_to:
-            qs = qs.filter(movement_date__lte=date_to)
-        if branch:
-            qs = qs.filter(branch__name=branch)
-        if year and not date_from and not date_to:
-            try:
-                qs = qs.filter(movement_date__year=int(year))
-            except ValueError:
-                pass
+        # ✅ Apply date + branch filters via shared helper
+        qs = _apply_date_branch_filters(qs, request)
 
         monthly = (
             qs.annotate(month=TruncMonth("movement_date"))
@@ -258,7 +278,7 @@ class TransactionSummaryView(APIView):
                     "sales_count":     0,
                     "purchases_count": 0,
                 }
-            # ── FIX: strip movement_type from DB row before comparing ────────
+            # ── FIX: strip movement_type from DB row before comparing ─────────
             mt = (row["movement_type"] or "").strip()
             if mt in SALE_TYPES or mt in RETURN_SALE_TYPES:
                 pivot[key]["total_sales"]  += float(row["total_out_value"] or 0)
@@ -276,22 +296,21 @@ class TransactionTypeBreakdownView(APIView):
     """
     GET /api/transactions/type-breakdown/
     Totals grouped by movement_type (raw Arabic label).
+
+    Query params:
+        date_from=YYYY-MM-DD
+        date_to=YYYY-MM-DD
+        branch=<str>          ✅ NEW
     """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         qs = MaterialMovement.objects.filter(company=request.user.company)
-        date_from = _strip_param(request, "date_from")
-        if date_from:
-            qs = qs.filter(movement_date__gte=date_from)
 
-        date_to = _strip_param(request, "date_to")
-        if date_to:
-            qs = qs.filter(movement_date__lte=date_to)
-        branch    = _strip_param(request, "branch") 
-        if branch:
-            qs = qs.filter(branch__name=branch) 
+        # ✅ Apply date + branch filters
+        qs = _apply_date_branch_filters(qs, request)
+
         breakdown = (
             qs.values("movement_type")
             .annotate(
@@ -305,7 +324,7 @@ class TransactionTypeBreakdownView(APIView):
         return Response({
             "breakdown": [
                 {
-                    # ── FIX: strip movement_type from DB before returning ─────
+                    # ── FIX: strip movement_type from DB before returning ──────
                     "movement_type": (row["movement_type"] or "").strip(),
                     "count":         row["count"],
                     "total_in":      float(row["total_in"]  or 0),
@@ -331,15 +350,15 @@ class TransactionBranchBreakdownView(APIView):
     PURCHASE_TYPES = {"ف شراء", "مردود شراء"}
 
     def get(self, request):
-        # ── FIX: strip the incoming movement_type param ──────────────────────
+        # ── FIX: strip the incoming movement_type param ───────────────────────
         movement_type = _strip_param(request, "movement_type", "ف بيع")
-        year = _strip_param(request, "year")
 
         qs = MaterialMovement.objects.filter(
             company=request.user.company,
             movement_type=movement_type,
         )
 
+        # ✅ Apply date filters (branch not applied here — this view aggregates BY branch)
         date_from = _strip_param(request, "date_from")
         if date_from:
             qs = qs.filter(movement_date__gte=date_from)
@@ -348,6 +367,7 @@ class TransactionBranchBreakdownView(APIView):
         if date_to:
             qs = qs.filter(movement_date__lte=date_to)
 
+        year = _strip_param(request, "year")
         if year and not date_from and not date_to:
             try:
                 qs = qs.filter(movement_date__year=int(year))
@@ -383,10 +403,10 @@ class TransactionBranchBreakdownView(APIView):
             "movement_type": movement_type,
             "branches": [
                 {
-                    "branch": row["branch__name"] or "Unknown",
-                    "count":  row["count"],
-                    "total":  float(row["total"] or 0),
-                    "total_profit": float(row["total_profit"] or 0),
+                    "branch":        row["branch__name"] or "Unknown",
+                    "count":         row["count"],
+                    "total":         float(row["total"] or 0),
+                    "total_profit":  float(row["total_profit"] or 0),
                 }
                 for row in breakdown
             ],
@@ -411,7 +431,7 @@ class TransactionBranchMonthlyView(APIView):
     PURCHASE_TYPES = {"ف شراء", "مردود شراء", "ادخال رئيسي"}
 
     def get(self, request):
-        # ── FIX: strip the incoming movement_type param ──────────────────────
+        # ── FIX: strip the incoming movement_type param ───────────────────────
         movement_type = _strip_param(request, "movement_type", "ف بيع")
         metric    = _strip_param(request, "metric", "revenue").lower()
         year      = _strip_param(request, "year")
@@ -474,7 +494,7 @@ class TransactionBranchMonthlyView(APIView):
                 }
             pivot[key][branch] = float(row["total"] or 0)
 
-        # ── FIX: fill 0 for every branch in every month ─────────────────────
+        # ── FIX: fill 0 for every branch in every month ───────────────────────
         # When a branch has no sales in a given month, that month's pivot entry
         # has no key for that branch.  Recharts treats a missing key as null /
         # undefined and — with connectNulls=false (the default) — breaks the

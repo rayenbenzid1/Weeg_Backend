@@ -1,4 +1,4 @@
-from django.db.models import Q, Sum
+from django.db.models import Q, Sum, Count
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -22,6 +22,10 @@ AGING_BUCKETS = [
     ("d301_330", "301-330d", 315),
     ("over_330", ">330d", 400),
 ]
+
+
+def _strip_param(request, key: str, default: str = "") -> str:
+    return request.query_params.get(key, default).strip()
 
 
 def _build_sales_map(company) -> dict:
@@ -106,7 +110,7 @@ class AgingListView(APIView):
 
     def get(self, request):
         company = request.user.company
-        snapshot_id_param = request.query_params.get("snapshot_id", "").strip()
+        snapshot_id_param = _strip_param(request, "snapshot_id")
 
         snapshot, qs_all = _get_snapshot_and_qs(company, snapshot_id_param)
         if snapshot is None and snapshot_id_param:
@@ -117,11 +121,11 @@ class AgingListView(APIView):
 
         qs = qs_all.filter(total__gt=0).select_related("customer")
 
-        search = request.query_params.get("search", "").strip()
+        search = _strip_param(request, "search")
         if search:
             qs = qs.filter(Q(account__icontains=search) | Q(account_code__icontains=search))
 
-        risk_filter = request.query_params.get("risk", "").strip().lower()
+        risk_filter = _strip_param(request, "risk").lower()
 
         ordering = request.query_params.get("ordering", "-total")
         if ordering in self.ALLOWED_ORDERINGS:
@@ -182,7 +186,7 @@ class AgingRiskView(APIView):
 
     def get(self, request):
         company = request.user.company
-        snapshot_id_param = request.query_params.get("snapshot_id", "").strip()
+        snapshot_id_param = _strip_param(request, "snapshot_id")
 
         snapshot, qs = _get_snapshot_and_qs(company, snapshot_id_param)
         if snapshot is None and snapshot_id_param:
@@ -190,7 +194,7 @@ class AgingRiskView(APIView):
 
         qs = qs.select_related("customer").order_by("-total")
 
-        risk_filter = request.query_params.get("risk", "").strip().lower()
+        risk_filter = _strip_param(request, "risk").lower()
         limit = min(100, max(1, int(request.query_params.get("limit", 20))))
 
         records = list(qs)
@@ -226,7 +230,7 @@ class AgingDistributionView(APIView):
 
     def get(self, request):
         company = request.user.company
-        snapshot_id_param = request.query_params.get("snapshot_id", "").strip()
+        snapshot_id_param = _strip_param(request, "snapshot_id")
 
         snapshot, qs = _get_snapshot_and_qs(company, snapshot_id_param)
         if snapshot is None and snapshot_id_param:
@@ -267,29 +271,61 @@ class AgingReportDatesView(APIView):
         ]
         return Response({"dates": dates})
 
+
 class AgingHistoricalTrendView(APIView):
+    """
+    GET /api/aging/historical-trend/
+
+    ✅ Query params:
+        date_from=YYYY-MM-DD  — only include snapshots on or after this date
+        date_to=YYYY-MM-DD    — only include snapshots on or before this date
+
+    Each point in the response corresponds to one AgingSnapshot.
+    Filtering is done on the snapshot's report_date (or uploaded_at when
+    report_date is null), so the period filter from the frontend directly
+    controls which snapshots appear in the chart.
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from django.db.models import Sum, Count
         company = request.user.company
 
-        snapshots = (
+        # ✅ Date range filter — applied to snapshot report_date / uploaded_at
+        date_from = _strip_param(request, "date_from")
+        date_to   = _strip_param(request, "date_to")
+
+        snapshots_qs = (
             AgingSnapshot.objects
             .filter(company=company)
             .order_by("uploaded_at")
         )
 
+        # ✅ Filter snapshots by date range using report_date when available,
+        # falling back to uploaded_at date when report_date is null.
+        if date_from:
+            snapshots_qs = snapshots_qs.filter(
+                # report_date is set AND >= date_from
+                # OR report_date is null AND uploaded_at.date >= date_from
+                Q(report_date__isnull=False, report_date__gte=date_from) |
+                Q(report_date__isnull=True,  uploaded_at__date__gte=date_from)
+            )
+
+        if date_to:
+            snapshots_qs = snapshots_qs.filter(
+                Q(report_date__isnull=False, report_date__lte=date_to) |
+                Q(report_date__isnull=True,  uploaded_at__date__lte=date_to)
+            )
+
         result = []
-        for snap in snapshots:
+        for snap in snapshots_qs:
             agg = snap.lines.aggregate(
                 total_amount=Sum("total"),
                 current_amount=Sum("current"),
                 total_customers=Count("id"),
             )
 
-            total_amount  = float(agg["total_amount"]  or 0)
-            current_amount = float(agg["current_amount"] or 0)
+            total_amount    = float(agg["total_amount"]  or 0)
+            current_amount  = float(agg["current_amount"] or 0)
             total_customers = agg["total_customers"] or 0
 
             if total_amount == 0:
@@ -297,38 +333,37 @@ class AgingHistoricalTrendView(APIView):
 
             overdue_amount = total_amount - current_amount
 
-            # Count customers: paid = only current balance (no overdue buckets)
+            # Paid customers = no overdue buckets at all
             paid_customers = snap.lines.filter(
                 d1_30=0, d31_60=0, d61_90=0, d91_120=0,
                 d121_150=0, d151_180=0, d181_210=0, d211_240=0,
                 d241_270=0, d271_300=0, d301_330=0, over_330=0,
             ).count()
-            
-            # Count customers: over60 = overdue buckets beyond 60 days only (no current, no 1-60)
-            overdue_60_customers = snap.lines.filter(
-                d31_60=0, d61_90=0, d91_120=0,
-                d121_150=0, d151_180=0, d181_210=0, d211_240=0,
-                d241_270=0, d271_300=0, d301_330=0, over_330=0,
+
+            # Customers with overdue > 60 days specifically
+            overdue60_customers = snap.lines.filter(
+                Q(d61_90__gt=0) | Q(d91_120__gt=0) | Q(d121_150__gt=0) |
+                Q(d151_180__gt=0) | Q(d181_210__gt=0) | Q(d211_240__gt=0) |
+                Q(d241_270__gt=0) | Q(d271_300__gt=0) | Q(d301_330__gt=0) |
+                Q(over_330__gt=0)
             ).count()
-            
-            overdue60_customers = total_customers - paid_customers - overdue_60_customers
 
             overdue_customers = total_customers - paid_customers
 
             result.append({
-                "snapshot_id":        str(snap.id),
-                "label":              str(snap.report_date or snap.uploaded_at.date()),
-                "total_amount":       round(total_amount, 2),
-                "current_amount":     round(current_amount, 2),
-                "overdue_amount":     round(overdue_amount, 2),
-                "collected_rate":     round(current_amount / total_amount * 100, 1),
-                "overdue_rate":       round(overdue_amount / total_amount * 100, 1),
-                "total_customers":    total_customers,
-                "paid_customers":     paid_customers,
-                "overdue_customers":  overdue_customers,
+                "snapshot_id":         str(snap.id),
+                "label":               str(snap.report_date or snap.uploaded_at.date()),
+                "total_amount":        round(total_amount, 2),
+                "current_amount":      round(current_amount, 2),
+                "overdue_amount":      round(overdue_amount, 2),
+                "collected_rate":      round(current_amount / total_amount * 100, 1),
+                "overdue_rate":        round(overdue_amount / total_amount * 100, 1),
+                "total_customers":     total_customers,
+                "paid_customers":      paid_customers,
+                "overdue_customers":   overdue_customers,
                 "overdue60_customers": overdue60_customers,
-                "paid_pct":           round(paid_customers / total_customers * 100, 1) if total_customers else 0,
-                "overdue_pct":        round(overdue_customers / total_customers * 100, 1) if total_customers else 0,
+                "paid_pct":            round(paid_customers      / total_customers * 100, 1) if total_customers else 0,
+                "overdue_pct":         round(overdue_customers   / total_customers * 100, 1) if total_customers else 0,
                 "overdue60_pct":       round(overdue60_customers / total_customers * 100, 1) if total_customers else 0,
             })
 
