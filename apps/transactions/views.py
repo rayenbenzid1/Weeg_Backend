@@ -216,11 +216,14 @@ class TransactionSummaryView(APIView):
         year      = _strip_param(request, "year")
         date_from = _strip_param(request, "date_from")
         date_to   = _strip_param(request, "date_to")
+        branch    = _strip_param(request, "branch")
 
         if date_from:
             qs = qs.filter(movement_date__gte=date_from)
         if date_to:
             qs = qs.filter(movement_date__lte=date_to)
+        if branch:
+            qs = qs.filter(branch__name=branch)
         if year and not date_from and not date_to:
             try:
                 qs = qs.filter(movement_date__year=int(year))
@@ -279,7 +282,6 @@ class TransactionTypeBreakdownView(APIView):
 
     def get(self, request):
         qs = MaterialMovement.objects.filter(company=request.user.company)
-
         date_from = _strip_param(request, "date_from")
         if date_from:
             qs = qs.filter(movement_date__gte=date_from)
@@ -287,7 +289,9 @@ class TransactionTypeBreakdownView(APIView):
         date_to = _strip_param(request, "date_to")
         if date_to:
             qs = qs.filter(movement_date__lte=date_to)
-
+        branch    = _strip_param(request, "branch") 
+        if branch:
+            qs = qs.filter(branch__name=branch) 
         breakdown = (
             qs.values("movement_type")
             .annotate(

@@ -11,22 +11,12 @@ from .serializers import (
     InventorySnapshotListSerializer,
     InventorySnapshotLineSerializer,
 )
-from apps.branches.resolver import BranchResolver   # ← ajouter cet import en haut du fichier
+from apps.branches.resolver import BranchResolver
 
 
 def _get_company_name(request):
-    """
-    Returns (company_name: str, error: Response|None).
-    If the user has no associated company the behaviour depends on roles:
-      * normal users -> 403 error
-      * superusers/staff -> may pass `?company_name=` to specify a target
-    This makes it possible to inspect inventory for other companies when using
-    an admin account (used in development).
-    """
     if request.user.company:
         return request.user.company.name, None
-
-    # allow superuser/staff to override via queryparam
     if request.user.is_active and (request.user.is_staff or request.user.is_superuser):
         name = request.query_params.get("company_name", "").strip()
         if name:
@@ -35,7 +25,6 @@ def _get_company_name(request):
             {"error": "Please provide company_name query parameter for admin access."},
             status=status.HTTP_400_BAD_REQUEST,
         )
-
     return None, Response(
         {"error": "Your account is not linked to a company."},
         status=status.HTTP_403_FORBIDDEN,
@@ -53,9 +42,7 @@ class InventoryListView(APIView):
     """
     GET /api/inventory/
     Returns a paginated list of InventorySnapshot sessions for the company.
-    Each item contains aggregated line_count and total_lines_value.
     """
-
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -80,25 +67,21 @@ class InventoryListView(APIView):
             )
 
         total = qs.count()
-        page      = _safe_int(request.query_params.get("page", 1),      default=1,   min_val=1,  max_val=10_000)
-        page_size = _safe_int(request.query_params.get("page_size", 20), default=20,  min_val=1,  max_val=100)
+        page      = _safe_int(request.query_params.get("page", 1),      default=1,  min_val=1,  max_val=10_000)
+        page_size = _safe_int(request.query_params.get("page_size", 20), default=20, min_val=1,  max_val=100)
         qs_page = qs[(page - 1) * page_size: page * page_size]
 
         return Response({
-            "count": total,
-            "page": page,
-            "page_size": page_size,
+            "count":       total,
+            "page":        page,
+            "page_size":   page_size,
             "total_pages": max(1, (total + page_size - 1) // page_size),
-            "items": InventorySnapshotListSerializer(qs_page, many=True).data,
+            "items":       InventorySnapshotListSerializer(qs_page, many=True).data,
         })
 
 
 class InventoryDetailView(APIView):
-    """
-    GET /api/inventory/<uuid:snapshot_id>/
-    Returns snapshot metadata + branch list. Lines are in a separate endpoint.
-    """
-
+    """GET /api/inventory/<uuid:snapshot_id>/"""
     permission_classes = [IsAuthenticated]
 
     def get(self, request, snapshot_id):
@@ -136,10 +119,13 @@ class InventoryDetailView(APIView):
 class InventorySnapshotLinesView(APIView):
     """
     GET /api/inventory/<uuid:snapshot_id>/lines/
-    Returns paginated InventorySnapshotLine rows for one snapshot.
     Supports ?branch=, ?search=, ?page=, ?page_size=
-    """
 
+    IMPORTANT: All totals (grand_total_qty, grand_total_value, distinct_products,
+    out_of_stock_count, critical_count, low_count) are computed on the FULL
+    filtered queryset BEFORE pagination, so they always reflect the correct
+    counts for the selected branch.
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, snapshot_id):
@@ -156,9 +142,11 @@ class InventorySnapshotLinesView(APIView):
 
         qs = snapshot.lines.all()
 
+        # ✅ FIX: use iexact instead of icontains to match exactly the branch name
+        # icontains could match multiple branches (e.g. "Tripoli" matches "Tripoli Est" too)
         branch = request.query_params.get("branch", "").strip()
         if branch:
-            qs = qs.filter(branch_name__icontains=branch)
+            qs = qs.filter(branch_name__iexact=branch)
 
         search = request.query_params.get("search", "").strip()
         if search:
@@ -166,29 +154,34 @@ class InventorySnapshotLinesView(APIView):
                 Q(product_name__icontains=search) | Q(product_code__icontains=search)
             )
 
+        # ✅ Compute ALL totals on the full filtered queryset BEFORE pagination
+        # This ensures distinct_products reflects the correct count for the branch
         totals = qs.aggregate(
             grand_total_qty=Sum("quantity"),
             grand_total_value=Sum("line_value"),
         )
+        # ✅ distinct_products = unique products in the filtered branch (not total lines)
         distinct_products  = qs.values("product_code").distinct().count()
         out_of_stock_count = qs.filter(quantity=0).count()
         critical_count     = qs.filter(quantity__gt=0, quantity__lt=30).count()
         low_count          = qs.filter(quantity__gte=30, quantity__lte=50).count()
+        total_lines        = qs.count()
 
-        total = qs.count()
+        # Paginate AFTER computing totals
         page      = _safe_int(request.query_params.get("page", 1),       default=1,   min_val=1, max_val=10_000)
         page_size = _safe_int(request.query_params.get("page_size", 100), default=100, min_val=1, max_val=500)
         qs_page = qs[(page - 1) * page_size: page * page_size]
 
         return Response({
             "snapshot_id": str(snapshot_id),
-            "count": total,
-            "page": page,
-            "page_size": page_size,
-            "total_pages": max(1, (total + page_size - 1) // page_size),
+            "count":       total_lines,
+            "page":        page,
+            "page_size":   page_size,
+            "total_pages": max(1, (total_lines + page_size - 1) // page_size),
             "totals": {
                 "grand_total_qty":    float(totals["grand_total_qty"]   or 0),
                 "grand_total_value":  float(totals["grand_total_value"] or 0),
+                # ✅ distinct_products = nb de produits uniques dans la branch filtrée
                 "distinct_products":  distinct_products,
                 "out_of_stock_count": out_of_stock_count,
                 "critical_count":     critical_count,
@@ -199,6 +192,10 @@ class InventorySnapshotLinesView(APIView):
 
 
 class InventoryBranchSummaryView(APIView):
+    """
+    GET /api/inventory/branch-summary/
+    Supports ?snapshot_id= and ?branch= filters.
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -209,9 +206,15 @@ class InventoryBranchSummaryView(APIView):
         qs = InventorySnapshotLine.objects.filter(
             snapshot__company_name=company_name,
         )
+
         snapshot_id = request.query_params.get("snapshot_id", "").strip()
         if snapshot_id:
             qs = qs.filter(snapshot_id=snapshot_id)
+
+        # ✅ FIX: use iexact for exact branch name matching
+        branch = request.query_params.get("branch", "").strip()
+        if branch:
+            qs = qs.filter(branch_name__iexact=branch)
 
         rows = (
             qs.values("branch_name")
@@ -222,15 +225,13 @@ class InventoryBranchSummaryView(APIView):
             .order_by("branch_name")
         )
 
-        # ── Normaliser via BranchResolver ─────────────────────────────────
+        # Normalise via BranchResolver
         company  = request.user.company
         resolver = BranchResolver(company) if company else None
 
         merged: dict[str, dict] = {}
         for r in rows:
             raw = r["branch_name"] or "Unknown"
-
-            # Résoudre vers le nom canonique
             if resolver:
                 branch_obj = resolver.resolve(raw)
                 canonical  = branch_obj.name if branch_obj else raw
@@ -256,13 +257,13 @@ class InventoryBranchSummaryView(APIView):
                 for name, data in sorted(merged.items())
             ],
         })
+
+
 class InventoryCategoryBreakdownView(APIView):
     """
     GET /api/inventory/category-breakdown/
-    Aggregates quantity + value by product_category.
-    Optional ?snapshot_id= to scope to a single import session.
+    Supports ?snapshot_id= and ?branch= filters.
     """
-
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -273,9 +274,15 @@ class InventoryCategoryBreakdownView(APIView):
         qs = InventorySnapshotLine.objects.filter(
             snapshot__company_name=company_name,
         )
+
         snapshot_id = request.query_params.get("snapshot_id", "").strip()
         if snapshot_id:
             qs = qs.filter(snapshot_id=snapshot_id)
+
+        # ✅ FIX: use iexact for exact branch name matching
+        branch = request.query_params.get("branch", "").strip()
+        if branch:
+            qs = qs.filter(branch_name__iexact=branch)
 
         breakdown = (
             qs.values("product_category")
@@ -289,8 +296,8 @@ class InventoryCategoryBreakdownView(APIView):
         return Response({
             "categories": [
                 {
-                    "category": r["product_category"] or "Uncategorized",
-                    "total_qty": float(r["total_qty"] or 0),
+                    "category":    r["product_category"] or "Uncategorized",
+                    "total_qty":   float(r["total_qty"]   or 0),
                     "total_value": float(r["total_value"] or 0),
                 }
                 for r in breakdown
@@ -300,7 +307,6 @@ class InventoryCategoryBreakdownView(APIView):
 
 class InventorySnapshotDatesView(APIView):
     """GET /api/inventory/dates/ — distinct import dates."""
-
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
