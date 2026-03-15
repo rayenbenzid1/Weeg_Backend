@@ -54,6 +54,7 @@ class StockKPIView(APIView):
 
     Query params:
         year=<int>                     — year for sales/purchases data (default: current year)
+        branch=<str>                   — optional exact branch filter
         low_rotation_threshold=<float> — rotation threshold (default: 0.5)
     """
 
@@ -66,6 +67,7 @@ class StockKPIView(APIView):
         company = request.user.company
 
         year = int(request.query_params.get("year", date.today().year))
+        branch = (request.query_params.get("branch") or "").strip()
         rotation_threshold = float(
             request.query_params.get("low_rotation_threshold", LOW_ROTATION_THRESHOLD)
         )
@@ -80,6 +82,8 @@ class StockKPIView(APIView):
             movement_date__gte=period_from,
             movement_date__lte=period_to,
         )
+        if branch:
+            base_mvt = base_mvt.filter(branch__name=branch)
 
         # ── 1. Quantité vendue — grouped by material_name ────────────────────
         sales_qs = (
@@ -131,9 +135,12 @@ class StockKPIView(APIView):
                 purchase_by_name[key] = float(row["qty_purchased"])
 
         # ── 4. Inventory snapshot lines — grouped by product_name ────────────
+        inv_lines = InventorySnapshotLine.objects.filter(snapshot__company=company)
+        if branch:
+            inv_lines = inv_lines.filter(branch_name=branch)
+
         inv_lines = (
-            InventorySnapshotLine.objects
-            .filter(snapshot__company=company)
+            inv_lines
             .values("product_name", "product_code", "product_category")
             .annotate(
                 total_qty=Coalesce(Sum("quantity"), Decimal("0")),

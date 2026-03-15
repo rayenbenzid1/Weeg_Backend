@@ -51,6 +51,7 @@ class SalesKPIView(APIView):
         year=<int>           — filter year (default: current year or latest data year)
         date_from=YYYY-MM-DD
         date_to=YYYY-MM-DD
+        branch=<str>         — optional exact branch filter
         top_n=<int>          — number of top products/customers (default: 10)
     """
 
@@ -65,9 +66,12 @@ class SalesKPIView(APIView):
         year_param = request.query_params.get("year")
         date_from  = request.query_params.get("date_from")
         date_to    = request.query_params.get("date_to")
+        branch     = (request.query_params.get("branch") or "").strip()
         top_n      = min(50, max(1, int(request.query_params.get("top_n", 10))))
 
         base_qs = MaterialMovement.objects.filter(company=company)
+        if branch:
+            base_qs = base_qs.filter(branch__name=branch)
 
         # Resolve year: use param, else infer from latest data
         if year_param:
