@@ -359,20 +359,14 @@ class UpdateUserPermissionsSerializer(serializers.ModelSerializer):
     def validate_permissions_list(self, value):
         allowed_permissions = {
             "import-data",
-            "export-data",
             "view-dashboard",
             "view-reports",
-            "generate-reports",
             "view-kpi",
-            "filter-dashboard",
             "view-sales",
             "view-inventory",
-            "view-customer-payments",
             "view-aging",
             "receive-notifications",
-            "manage-alerts",
             "view-profile",
-            "change-password",
             "ai-insights",
         }
         invalid = set(value) - allowed_permissions
