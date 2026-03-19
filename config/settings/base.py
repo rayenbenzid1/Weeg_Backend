@@ -347,3 +347,10 @@ SPECTACULAR_SETTINGS = {
 # =============================================================================
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+# =============================================================================
+# OpenAI
+# =============================================================================
+
+OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
+AI_MODEL_SMART = env("AI_MODEL_SMART", default="gpt-4o")
+AI_MODEL_FAST  = env("AI_MODEL_FAST",  default="gpt-4o-mini")
